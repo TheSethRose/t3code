@@ -74,14 +74,6 @@ The most common defect in this repo is a change that works on the path you teste
 - **Connection modes.** Local, remote/relay, and tunnel behave differently. Multi-device and multi-environment cases are real.
 - **Docs.** `docs/` splits by audience. Behavior changes that a user would notice belong in `docs/user/` (shipped-product voice, no repo tooling or source paths); architecture and contributor changes in `docs/internals/`; runbooks in `docs/operations/`; new vocabulary in `docs/internals/glossary.md`.
 
-## Downstream build
-
-This fork treats `origin/main` as the tested downstream product and published T3 Code nightly tags as upstream baselines. Read `downstream/README.md` before adding a fork-only change or rolling to a new nightly.
-
-Executable changes stay in their normal `apps/`, `packages/`, or other source paths. Each active fork-only deviation must have a matching `downstream/changes/<slug>.md` record covering its purpose, affected surfaces, focused validation, and removal condition. Delete that record when the deviation is removed or replaced upstream.
-
-Roll nightlies through a temporary `sync/nightly-<date>.<run>` branch and merge the selected tag into it. Never rebase or force-push published downstream `main`; resolve conflicts against current upstream architecture, then preserve downstream behavior only where its active change record still requires it.
-
 ## Dev servers
 
 - `vp i` installs. Worktrees get this from the t3.json setup script; if module resolution looks broken, it probably did not run.
@@ -154,3 +146,5 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+This is a maintained downstream build. Before doing any work, read and follow `downstream/t3code/AGENTS.md`.
