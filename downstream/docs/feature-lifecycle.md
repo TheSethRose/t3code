@@ -1,10 +1,10 @@
-# Downstream Feature Lifecycle
+# Downstream Change Lifecycle
 
-A downstream feature is one independently removable deviation from the accepted upstream nightly.
+A downstream change is one independently removable deviation from the accepted upstream nightly.
 Executable code and tests stay in their normal `apps/`, `packages/`, `scripts/`, or infrastructure
 paths. Every downstream-owned file has an exact counterpart at the same relative path under
-`downstream/t3code/`. Its maintenance record lives at `downstream/changes/<slug>.md` and exists only
-while the deviation remains active.
+`downstream/t3code/`. Its maintenance record lives under `downstream/changes/` and exists only while
+the deviation remains active. Bug records live under `downstream/changes/Bugs/`.
 
 The upstream [architecture overview](../../docs/internals/overview.md),
 [workspace layout](../../docs/internals/workspace-layout.md), and
@@ -105,8 +105,8 @@ counterpart, and record together. Run init only after both copies contain the re
 rerun the exact validation. Follow
 [Compatibility](compatibility.md) for contracts, stored data, and mixed versions.
 
-If upstream changes the extension point, adapt the downstream feature to it. Do not add a permanent
-wrapper around an obsolete upstream interface unless the feature has an independent compatibility
+If upstream changes the extension point, adapt the downstream change to it. Do not add a permanent
+wrapper around an obsolete upstream interface unless the change has an independent compatibility
 requirement that justifies it.
 
 ## 6. Remove the Deviation

@@ -1,18 +1,24 @@
-import { PiSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
+import { AcpSettings, ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import { HttpClient } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { makePiTextGeneration } from "../../textGeneration/PiTextGeneration.ts";
+import { makeAcpTextGeneration } from "../../textGeneration/AcpTextGeneration.ts";
 import { ProviderDriverError } from "../Errors.ts";
-import { makePiAdapter } from "../Layers/PiAdapter.ts";
-import { buildInitialPiProviderSnapshot, checkPiProviderStatus } from "../Layers/PiProvider.ts";
+import { makeAcpAdapter } from "../Layers/AcpAdapter.ts";
+import {
+  buildInitialAcpProviderSnapshot,
+  checkAcpProviderStatus,
+  enrichAcpSnapshot,
+} from "../Layers/AcpProvider.ts";
+import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -31,19 +37,24 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
+const decodeAcpSettings = Schema.decodeSync(AcpSettings);
 
-const DRIVER_KIND = ProviderDriverKind.make("pi");
-const decodePiSettings = Schema.decodeSync(PiSettings);
+const DRIVER_KIND = ProviderDriverKind.make("acp");
 const UPDATE = makeStaticProviderMaintenanceResolver(
-  makeManualOnlyProviderMaintenanceCapabilities({ provider: DRIVER_KIND, packageName: null }),
+  makeManualOnlyProviderMaintenanceCapabilities({
+    provider: DRIVER_KIND,
+    packageName: null,
+  }),
 );
 
-export type PiDriverEnv =
+export type AcpDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
   | ChildProcessSpawner.ChildProcessSpawner
   | Crypto.Crypto
   | FileSystem.FileSystem
+  | HttpClient.HttpClient
   | Path.Path
+  | ProviderEventLoggers
   | ServerConfig
   | ServerSettingsService;
 
@@ -63,16 +74,21 @@ const withInstanceIdentity =
     continuation: { groupKey: input.continuationGroupKey },
   });
 
-export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
+export const AcpDriver: ProviderDriver<AcpSettings, AcpDriverEnv> = {
   driverKind: DRIVER_KIND,
-  metadata: { displayName: "Pi", supportsMultipleInstances: true },
-  configSchema: PiSettings,
-  defaultConfig: () => decodePiSettings({}),
+  metadata: {
+    displayName: "ACP",
+    supportsMultipleInstances: true,
+  },
+  configSchema: AcpSettings,
+  defaultConfig: (): AcpSettings => decodeAcpSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
+      const crypto = yield* Crypto.Crypto;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const serverConfig = yield* ServerConfig;
+      const httpClient = yield* HttpClient.HttpClient;
       const serverSettings = yield* ServerSettingsService;
+      const eventLoggers = yield* ProviderEventLoggers;
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
         driverKind: DRIVER_KIND,
@@ -84,47 +100,48 @@ export const PiDriver: ProviderDriver<PiSettings, PiDriverEnv> = {
         accentColor,
         continuationGroupKey: continuationIdentity.continuationKey,
       });
+      const effectiveConfig = { ...config, enabled } satisfies AcpSettings;
       const maintenanceCapabilities = yield* resolveProviderMaintenanceCapabilitiesEffect(UPDATE, {
-        binaryPath: config.binaryPath,
+        binaryPath: effectiveConfig.binaryPath,
         env: processEnv,
       });
-      const adapter = yield* makePiAdapter(config, { instanceId, environment: processEnv }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ProviderDriverError({
-              driver: DRIVER_KIND,
-              instanceId,
-              detail: "Failed to initialize the Pi adapter.",
-              cause,
-            }),
-        ),
-      );
-      const textGeneration = yield* makePiTextGeneration(config, processEnv);
-      const checkProvider = checkPiProviderStatus(
-        config,
-        enabled,
-        processEnv,
-        serverConfig.cwd,
-      ).pipe(
+
+      const adapter = yield* makeAcpAdapter(effectiveConfig, {
+        environment: processEnv,
+        instanceId,
+      });
+      const textGeneration = yield* makeAcpTextGeneration(effectiveConfig, processEnv);
+
+      const checkProvider = checkAcpProviderStatus(effectiveConfig, processEnv).pipe(
         Effect.map(stampIdentity),
+        Effect.provideService(Crypto.Crypto, crypto),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       );
-      const snapshotSettings = makeProviderSnapshotSettingsSource(config, serverSettings);
-      const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<PiSettings>>({
+
+      const snapshotSettings = makeProviderSnapshotSettingsSource(effectiveConfig, serverSettings);
+      const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<AcpSettings>>({
         maintenanceCapabilities,
         getSettings: snapshotSettings.getSettings,
         streamSettings: snapshotSettings.streamSettings,
         haveSettingsChanged: haveProviderSnapshotSettingsChanged,
-        initialSnapshot: () =>
-          buildInitialPiProviderSnapshot(enabled).pipe(Effect.map(stampIdentity)),
+        initialSnapshot: (settings) =>
+          buildInitialAcpProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
         checkProvider,
+        enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
+          enrichAcpSnapshot({
+            snapshot: currentSnapshot,
+            maintenanceCapabilities,
+            enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+            publishSnapshot,
+            httpClient,
+          }),
       }).pipe(
         Effect.mapError(
           (cause) =>
             new ProviderDriverError({
               driver: DRIVER_KIND,
               instanceId,
-              detail: `Failed to build Pi snapshot: ${cause.message ?? String(cause)}`,
+              detail: `Failed to build ACP snapshot: ${cause.message ?? String(cause)}`,
               cause,
             }),
         ),

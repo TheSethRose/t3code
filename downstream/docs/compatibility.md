@@ -11,10 +11,10 @@ control every downstream server. The upstream
 
 Published upstream nightly tags are immutable integration inputs. `origin/main` is the accepted
 downstream product, and normal Git commits record product source changes in their normal paths. Under
-the current reconstruction model, every downstream-owned product file also has an exact counterpart
+the current overlay model, every downstream-owned product file also has an exact counterpart
 under `downstream/t3code/`, and `downstream.ts verify` rejects byte drift between the two copies.
-Each active deviation has one `downstream/changes/<slug>.md` record that explains why it exists, which
-surfaces it affects, how to validate it, and when it can be removed.
+Each active deviation has one record under `downstream/changes/` that explains why it exists, which
+surfaces it affects, how to validate it, and when it can be removed. Bug records live in `Bugs/`.
 
 During a nightly roll, resolve conflicts against the new upstream architecture. Do not preserve an
 older interface through a compatibility layer solely to reduce the immediate merge diff. If upstream

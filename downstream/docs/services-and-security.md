@@ -1,8 +1,8 @@
 # Services and Security
 
 The downstream inherits code that can connect to T3 Code servers, provider CLIs, source-control
-services, hosted clients, T3 Connect, identity providers, and platform release systems. Source
-availability does not make upstream-operated infrastructure part of the downstream trust boundary.
+services, hosted clients, T3 Connect, identity providers, and platform release systems. Having the
+source does not make upstream-operated infrastructure part of the downstream trust boundary.
 
 Use the upstream [environment authentication profile](../../docs/internals/environment-auth.md),
 [remote architecture](../../docs/internals/remote.md), and

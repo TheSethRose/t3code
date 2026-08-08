@@ -71,6 +71,17 @@ export function ProviderIcon(props: ProviderIconProps) {
     );
   }
 
+  if (props.provider === "acp") {
+    const acpPrimary = isDarkMode ? "#e94560" : "#c23152";
+    return (
+      <Svg width={size} height={size} viewBox="0 0 800 800" fill="none">
+        <Path fill={mono} d="M160 160h480v480h-480z" opacity={0.12} />
+        <Path fill={acpPrimary} d="M300 400a80 80 0 1 0 160 0 80 80 0 1 0-160 0z" />
+        <Path fill={mono} d="M500 400a80 80 0 1 0 160 0 80 80 0 1 0-160 0z" opacity={0.4} />
+      </Svg>
+    );
+  }
+
   // codex (and unknown drivers)
   return (
     <Svg width={size} height={size} viewBox="0 0 256 260" fill="none">

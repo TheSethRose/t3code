@@ -13,8 +13,8 @@ source, then explain only the downstream policy or compatibility work layered on
   nightlies, stored data, and mixed client/server versions.
 - [Release and Distribution](release-and-distribution.md) describes the current local artifact path
   and the work required before publishing installers or remote servers.
-- [Feature Lifecycle](feature-lifecycle.md) is the checklist for adding, validating, rolling, and
-  eventually removing one downstream feature.
+- [Change Lifecycle](feature-lifecycle.md) is the checklist for adding, validating, rolling, and
+  eventually removing one downstream change.
 - [Services and Security](services-and-security.md) records the trust boundary around pairing,
   hosted clients, T3 Connect, credentials, and build configuration.
 - [Provider Architecture](providers.md) maps the provider driver extension points and gives the

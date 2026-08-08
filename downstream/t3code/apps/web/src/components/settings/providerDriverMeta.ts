@@ -1,4 +1,5 @@
 import {
+  AcpSettings,
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
@@ -9,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
 import {
+  AcpAgentIcon,
   ClaudeAI,
   CursorIcon,
   GrokIcon,
@@ -82,6 +84,13 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     icon: PiAgentIcon,
     badgeLabel: "Downstream",
     settingsSchema: PiSettings,
+  },
+  {
+    value: ProviderDriverKind.make("acp"),
+    label: "ACP",
+    icon: AcpAgentIcon,
+    badgeLabel: "Downstream",
+    settingsSchema: AcpSettings,
   },
 ];
 

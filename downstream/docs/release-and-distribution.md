@@ -21,9 +21,9 @@ copies output to `release/downstream/`. It removes `T3CODE_DESKTOP_UPDATE_REPOSI
 `GITHUB_REPOSITORY` from the artifact build environment, so the resulting installer does not receive
 an official or incomplete fork updater feed.
 
-This is a host-platform build, not a full release matrix. The output directory may contain artifacts
-from earlier runs, so identify the files produced by the current invocation before handing anything
-off. A publication workflow should use a clean, version-specific artifact directory.
+This is a host-platform build, not a full release matrix. Because the output directory may contain
+artifacts from earlier runs, identify the files produced by the current invocation before handing
+them off. A publication workflow should use a clean, version-specific artifact directory.
 
 ## What Is Not Published
 

@@ -2,7 +2,7 @@
 
 T3 Code separates a provider's implementation from its configured instances. A **driver** implements one protocol such as Codex or Claude; an **instance** is one configured copy of that driver, such as `codex_personal` or `codex_work`. Threads and requests route by instance ID, which is what makes multiple accounts or configurations of the same provider possible.
 
-The upstream [provider architecture](../../docs/internals/providers.md) remains the source of truth for the shared runtime. This guide describes the downstream extension points and the extra surface and maintenance decisions required when adding a provider to the fork. Follow the linked source when a nightly changes it rather than preserving an older downstream pattern, and apply the general [Feature Lifecycle](feature-lifecycle.md) and [Compatibility](compatibility.md) rules as well.
+The upstream [provider architecture](../../docs/internals/providers.md) remains the source of truth for the shared runtime. This guide describes the downstream extension points and the extra surface and maintenance decisions required when adding a provider to the fork. Follow the linked source when a nightly changes it rather than preserving an older downstream pattern, and apply the general [Change Lifecycle](feature-lifecycle.md) and [Compatibility](compatibility.md) rules as well.
 
 ## System Map
 

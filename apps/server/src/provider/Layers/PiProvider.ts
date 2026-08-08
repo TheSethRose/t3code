@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type PiSettings,
   type ServerProviderModel,
+  type ServerProviderSkill,
 } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -39,12 +40,58 @@ interface PiModel {
   readonly reasoning?: unknown;
 }
 
+interface PiCommand {
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly source?: unknown;
+  readonly path?: unknown;
+  readonly location?: unknown;
+  readonly sourceInfo?: unknown;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function asPiModels(value: unknown): ReadonlyArray<PiModel> {
   return isRecord(value) && Array.isArray(value.models) ? value.models.filter(isRecord) : [];
+}
+
+function asPiSkills(value: unknown): ReadonlyArray<ServerProviderSkill> {
+  const commands =
+    isRecord(value) && Array.isArray(value.commands)
+      ? (value.commands.filter(isRecord) as ReadonlyArray<PiCommand>)
+      : [];
+  return commands
+    .flatMap((command) => {
+      if (command.source !== "skill" || typeof command.name !== "string") return [];
+      const sourceInfo = isRecord(command.sourceInfo) ? command.sourceInfo : undefined;
+      const name = command.name.replace(/^skill:/, "").trim();
+      const path =
+        typeof sourceInfo?.path === "string"
+          ? sourceInfo.path.trim()
+          : typeof command.path === "string"
+            ? command.path.trim()
+            : "";
+      if (!name || !path) return [];
+      const description = typeof command.description === "string" ? command.description.trim() : "";
+      const scope =
+        typeof sourceInfo?.scope === "string"
+          ? sourceInfo.scope.trim()
+          : typeof command.location === "string"
+            ? command.location.trim()
+            : "";
+      return [
+        {
+          name,
+          path,
+          enabled: true,
+          ...(description ? { description } : {}),
+          ...(scope ? { scope } : {}),
+        },
+      ];
+    })
+    .toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
 function modelSlug(model: PiModel): string | undefined {
@@ -79,7 +126,7 @@ function capabilitiesForThinkingLevels(
   });
 }
 
-const discoverPiModels = (settings: PiSettings, environment: NodeJS.ProcessEnv) =>
+const discoverPiInventory = (settings: PiSettings, environment: NodeJS.ProcessEnv, cwd: string) =>
   Effect.gen(function* () {
     const rpc = yield* makePiRpcClient({
       binaryPath: settings.binaryPath,
@@ -87,22 +134,23 @@ const discoverPiModels = (settings: PiSettings, environment: NodeJS.ProcessEnv) 
         ...resolvePiLaunchArgs(settings.launchArgs),
         "--no-session",
         "--no-extensions",
-        "--no-skills",
         "--no-prompt-templates",
         "--no-context-files",
         "--offline",
       ],
+      cwd,
       environment,
     });
     const available = yield* rpc.request({ type: "get_available_models" });
     const state = yield* rpc.request({ type: "get_state" });
+    const commands = yield* rpc.request({ type: "get_commands" });
     const stateModel =
       isRecord(state) && isRecord(state.model) ? modelSlug(state.model) : undefined;
     const stateThinking =
       isRecord(state) && typeof state.thinkingLevel === "string" ? state.thinkingLevel : undefined;
     const seen = new Set<string>();
 
-    return yield* Effect.forEach(asPiModels(available), (model) =>
+    const models = yield* Effect.forEach(asPiModels(available), (model) =>
       Effect.gen(function* () {
         const slug = modelSlug(model);
         if (!slug || seen.has(slug)) return undefined;
@@ -132,7 +180,8 @@ const discoverPiModels = (settings: PiSettings, environment: NodeJS.ProcessEnv) 
           ),
         } satisfies ServerProviderModel;
       }),
-    ).pipe(Effect.map((models) => models.flatMap((model) => (model ? [model] : []))));
+    ).pipe(Effect.map((items) => items.flatMap((model) => (model ? [model] : []))));
+    return { models, skills: asPiSkills(commands) };
   }).pipe(Effect.scoped);
 
 const runVersion = (settings: PiSettings, environment: NodeJS.ProcessEnv) =>
@@ -180,6 +229,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   settings: PiSettings,
   enabled: boolean,
   environment: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
 ): Effect.fn.Return<ServerProviderDraft, never, ChildProcessSpawner.ChildProcessSpawner> {
   const checkedAt = yield* Effect.map(DateTime.now, DateTime.formatIso);
   if (!enabled) return yield* buildInitialPiProviderSnapshot(false);
@@ -242,12 +292,15 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     });
   }
 
-  const discovery = yield* discoverPiModels(settings, environment).pipe(
+  const discovery = yield* discoverPiInventory(settings, environment, cwd).pipe(
     Effect.timeoutOption(DISCOVERY_TIMEOUT_MS),
     Effect.result,
   );
-  const models =
-    Result.isSuccess(discovery) && Option.isSome(discovery.success) ? discovery.success.value : [];
+  const inventory =
+    Result.isSuccess(discovery) && Option.isSome(discovery.success)
+      ? discovery.success.value
+      : { models: [], skills: [] };
+  const { models, skills } = inventory;
   const message = Result.isFailure(discovery)
     ? "Pi RPC model discovery failed. Check the Pi configuration and server logs."
     : Option.isNone(discovery.success)
@@ -262,6 +315,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     enabled,
     checkedAt,
     models,
+    skills,
     probe: {
       installed: true,
       version,

@@ -12,7 +12,7 @@ user behavior; the downstream docs cover only the fork-specific layer:
 - [Compatibility](docs/compatibility.md) covers nightly, contract, version, settings, and data rules.
 - [Release and Distribution](docs/release-and-distribution.md) separates the current local artifact
   path from future publication requirements.
-- [Feature Lifecycle](docs/feature-lifecycle.md) is the required workflow for adding, rolling, and
+- [Change Lifecycle](docs/feature-lifecycle.md) is the required workflow for adding, rolling, and
   removing a downstream change.
 - [Services and Security](docs/services-and-security.md) defines hosted-service, credential, pairing,
   and workflow boundaries.
@@ -81,7 +81,7 @@ No symlink is involved, so the resulting tree works in a fresh clone and in CI. 
 
 Product code and tests execute only from their normal T3 paths. Every downstream-owned normal file
 must have a byte-identical full-file copy at the same relative path under `downstream/t3code/`, and
-exactly one active `downstream/changes/<slug>.md` record must list that path under `## Overlay Files`.
+exactly one active record under `downstream/changes/` must list that path under `## Overlay Files`.
 The record makes ownership, nightly review, validation, and later removal intentional; an unowned
 overlay is invalid.
 
@@ -125,9 +125,10 @@ git config --local rerere.autoupdate false
 
 ## Adding a Downstream Change
 
-Follow the [Feature Lifecycle](docs/feature-lifecycle.md). Start from downstream `main`, put
+Follow the [Change Lifecycle](docs/feature-lifecycle.md). Start from downstream `main`, put
 executable code and tests in their normal repository paths, and keep each concern in a coherent
-commit or short commit series. Add `downstream/changes/<slug>.md` with these sections:
+commit or short commit series. Add a record under `downstream/changes/`, using
+`downstream/changes/Bugs/<slug>.md` for bug fixes, with these sections:
 
 ```markdown
 # Change name

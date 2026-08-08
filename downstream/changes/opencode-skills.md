@@ -1,4 +1,4 @@
-# OpenCode skill inventory
+# OpenCode Skill Inventory
 
 ## Why
 
@@ -14,7 +14,7 @@ OpenCode runtime could use them.
 - `apps/server/src/provider/Layers/OpenCodeProvider.ts` maps OpenCode skill metadata into the existing
   `ServerProviderSkill` contract. Its byte-identical overlay is
   `downstream/t3code/apps/server/src/provider/Layers/OpenCodeProvider.ts`.
-- Focused changed tests live beside the server code and have byte-identical overlay copies. The
+- Focused regression tests live beside the server code and have byte-identical overlay copies. The
   existing CLI parser helpers and tests remain unchanged because the copy-only overlay cannot encode
   an upstream-file deletion; the active provider path no longer calls those helpers.
 - `vite.config.ts` excludes `downstream/t3code/` from test discovery so mirrored regression tests

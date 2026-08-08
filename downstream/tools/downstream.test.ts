@@ -264,6 +264,13 @@ NodeTest.test("rejects orphan, duplicate, and stale overlay ownership", () => {
     NodeAssert.throws(() => initDownstream(temporaryRoot), /owned by both/);
 
     NodeFS.rmSync(NodePath.join(temporaryRoot, "downstream", "changes", "two.md"));
+    NodeFS.mkdirSync(NodePath.join(temporaryRoot, "downstream", "changes", "Bugs"));
+    NodeFS.renameSync(
+      NodePath.join(temporaryRoot, "downstream", "changes", "one.md"),
+      NodePath.join(temporaryRoot, "downstream", "changes", "Bugs", "one.md"),
+    );
+    NodeAssert.doesNotThrow(() => initDownstream(temporaryRoot));
+
     writeChangeRecord(temporaryRoot, "stale", ["missing.txt"]);
     NodeAssert.throws(() => initDownstream(temporaryRoot), /lists missing downstream overlay/);
   } finally {

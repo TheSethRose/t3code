@@ -1,6 +1,6 @@
 ---
 name: merge-t3code-downstream
-description: Reconcile this maintained T3 Code fork with a newer official nightly while preserving intentional downstream behavior and upstream changes. Use after `downstream.ts roll` merges a nightly, while resolving nightly conflicts, or before applying files from `downstream/t3code/` to an updated upstream tree. Review full-file overlays semantically, update the working file and overlay together, and remove downstream changes that upstream has absorbed.
+description: Reconcile this maintained T3 Code fork with an official nightly. Use after `downstream.ts roll`, to resolve nightly conflicts, or before applying `downstream/t3code/` overlays. Review overlays against upstream, sync both copies, and remove deviations upstream has absorbed.
 ---
 
 # Merge T3 Code Downstream

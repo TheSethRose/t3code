@@ -113,9 +113,9 @@ function activeChangeRecords(rootDir: string): ReadonlyArray<string> {
   const changesDir = NodePath.join(rootDir, "downstream", "changes");
   if (!NodeFS.existsSync(changesDir)) return [];
 
-  return NodeFS.readdirSync(changesDir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => NodePath.join("downstream", "changes", entry.name))
+  return filesUnder(changesDir)
+    .filter((relativePath) => relativePath.endsWith(".md"))
+    .map((relativePath) => NodePath.join("downstream", "changes", relativePath))
     .toSorted();
 }
 

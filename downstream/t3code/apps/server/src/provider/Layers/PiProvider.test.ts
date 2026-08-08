@@ -41,8 +41,9 @@ while IFS= read -r request; do
   case "$request" in
     *get_available_models*) printf '%s\\n' '{"type":"response","id":"t3-1","command":"get_available_models","success":true,"data":{"models":[{"provider":"openrouter","id":"demo","name":"Demo","reasoning":true}]}}' ;;
     *get_state*) printf '%s\\n' '{"type":"response","id":"t3-2","command":"get_state","success":true,"data":{"model":{"provider":"openrouter","id":"demo"},"thinkingLevel":"high"}}' ;;
-    *set_model*) printf '%s\\n' '{"type":"response","id":"t3-3","command":"set_model","success":true}' ;;
-    *get_available_thinking_levels*) printf '%s\\n' '{"type":"response","id":"t3-4","command":"get_available_thinking_levels","success":true,"data":{"levels":["off","high","xhigh"]}}' ;;
+    *get_commands*) printf '%s\\n' '{"type":"response","id":"t3-3","command":"get_commands","success":true,"data":{"commands":[{"name":"skill:review-code","description":"Review code carefully.","source":"skill","sourceInfo":{"path":"/Users/test/.agents/skills/review-code/SKILL.md","scope":"user","source":"auto","origin":"top-level"}},{"name":"stats","source":"extension","sourceInfo":{"path":"/tmp/stats.ts","scope":"user","source":"auto","origin":"top-level"}}]}}' ;;
+    *set_model*) printf '%s\\n' '{"type":"response","id":"t3-4","command":"set_model","success":true}' ;;
+    *get_available_thinking_levels*) printf '%s\\n' '{"type":"response","id":"t3-5","command":"get_available_thinking_levels","success":true,"data":{"levels":["off","high","xhigh"]}}' ;;
   esac
 done
 `,
@@ -60,6 +61,15 @@ done
         id: "thinkingLevel",
         currentValue: "high",
       });
+      expect(snapshot.skills).toEqual([
+        {
+          name: "review-code",
+          description: "Review code carefully.",
+          path: "/Users/test/.agents/skills/review-code/SKILL.md",
+          scope: "user",
+          enabled: true,
+        },
+      ]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 });
@@ -73,6 +83,7 @@ describe.runIf(process.env.T3_PI_CLI_PROBE === "1")("real Pi CLI", () => {
         expect(snapshot.status).toBe("ready");
         expect(snapshot.auth.status).toBe("authenticated");
         expect(snapshot.models.length).toBeGreaterThan(0);
+        expect(snapshot.skills.length).toBeGreaterThan(0);
       }),
     ),
   );
