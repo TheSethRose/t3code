@@ -496,7 +496,7 @@ if (import.meta.main) {
       console.error(error.message);
       console.error("Resolve the conflicts, review downstream/changes, then run:");
       console.error("  vp node downstream/tools/downstream.ts init");
-      console.error("Review and add AGENTS.md before committing the merge.");
+      console.error("Review and add every resolved and applied file before committing the merge.");
       console.error("Use 'git merge --abort' to return to downstream main.");
     } else {
       console.error(error instanceof Error ? error.message : String(error));

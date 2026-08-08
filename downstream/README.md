@@ -129,10 +129,9 @@ When Git reports conflicts:
 ```bash
 git status --short
 # edit and review each conflicted file
-git add <resolved-files>
 vp node downstream/tools/downstream.ts init
 git status --short
-git add AGENTS.md
+git add <all-resolved-and-applied-files>
 git commit
 ```
 
