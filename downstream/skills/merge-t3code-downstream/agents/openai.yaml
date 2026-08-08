@@ -1,0 +1,4 @@
+interface:
+  display_name: "Merge T3 Code Downstream"
+  short_description: "Reconcile downstream changes with upstream"
+  default_prompt: "Use $merge-t3code-downstream to reconcile this downstream fork with the updated upstream T3 Code baseline."

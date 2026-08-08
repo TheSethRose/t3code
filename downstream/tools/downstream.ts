@@ -43,7 +43,10 @@ export interface DownstreamRollResult {
   readonly tag: string;
   readonly branch: string;
   readonly changeRecords: ReadonlyArray<string>;
-  readonly overlayChanged: boolean;
+}
+
+interface InitDownstreamOptions {
+  readonly agentsSkillsDir?: string;
 }
 
 function run(command: string, args: ReadonlyArray<string>, options: RunOptions): string {
@@ -116,6 +119,142 @@ function activeChangeRecords(rootDir: string): ReadonlyArray<string> {
     .toSorted();
 }
 
+function canonicalOverlayPath(relativePath: string): string {
+  return relativePath.split(NodePath.sep).join("/");
+}
+
+function changeRecordOverlayFiles(rootDir: string, recordPath: string): ReadonlyArray<string> {
+  const lines = NodeFS.readFileSync(NodePath.join(rootDir, recordPath), "utf8").split("\n");
+  const headingIndex = lines.findIndex((line) => line.trim() === "## Overlay Files");
+  if (headingIndex === -1) {
+    throw new DownstreamCommandError(
+      `${recordPath} is missing an exact '## Overlay Files' section.`,
+    );
+  }
+
+  const files: Array<string> = [];
+  for (const line of lines.slice(headingIndex + 1)) {
+    if (line.startsWith("## ")) break;
+    if (!line.trim()) continue;
+    const match = /^- `([^`]+)`$/.exec(line.trim());
+    if (!match?.[1]) {
+      throw new DownstreamCommandError(
+        `${recordPath} has an invalid Overlay Files entry: ${line.trim()}`,
+      );
+    }
+    const relativePath = match[1];
+    if (
+      relativePath.includes("\\") ||
+      NodePath.posix.isAbsolute(relativePath) ||
+      NodePath.posix.normalize(relativePath) !== relativePath ||
+      relativePath === "AGENTS.md" ||
+      relativePath.startsWith("downstream/")
+    ) {
+      throw new DownstreamCommandError(
+        `${recordPath} has an invalid repository-relative overlay path: ${relativePath}`,
+      );
+    }
+    files.push(relativePath);
+  }
+  if (files.length === 0) {
+    throw new DownstreamCommandError(`${recordPath} does not list any overlay files.`);
+  }
+  return files.toSorted();
+}
+
+function verifyOverlayOwnership(rootDir: string): void {
+  const actualFiles = overlayFiles(rootDir)
+    .filter((relativePath) => relativePath !== "AGENTS.md")
+    .map(canonicalOverlayPath);
+  const owners = new Map<string, string>();
+
+  for (const recordPath of activeChangeRecords(rootDir)) {
+    for (const relativePath of changeRecordOverlayFiles(rootDir, recordPath)) {
+      const existingOwner = owners.get(relativePath);
+      if (existingOwner) {
+        throw new DownstreamCommandError(
+          `Overlay ${relativePath} is owned by both ${existingOwner} and ${recordPath}.`,
+        );
+      }
+      owners.set(relativePath, recordPath);
+    }
+  }
+
+  for (const relativePath of actualFiles) {
+    if (!owners.has(relativePath)) {
+      throw new DownstreamCommandError(
+        `Downstream overlay ${relativePath} is not owned by an active change record.`,
+      );
+    }
+  }
+  for (const [relativePath, recordPath] of owners) {
+    if (!actualFiles.includes(relativePath)) {
+      throw new DownstreamCommandError(
+        `${recordPath} lists missing downstream overlay ${relativePath}.`,
+      );
+    }
+  }
+}
+
+function isGitWorktree(rootDir: string): boolean {
+  const result = NodeChildProcess.spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
+    cwd: rootDir,
+    stdio: "ignore",
+  });
+  if (result.error) {
+    throw new DownstreamCommandError(`Could not run git: ${result.error.message}`);
+  }
+  return result.status === 0;
+}
+
+function requireSafeOverwrite(rootDir: string, relativePath: string): void {
+  if (!isGitWorktree(rootDir)) return;
+  if (git(rootDir, ["status", "--porcelain", "--untracked-files=all", "--", relativePath])) {
+    throw new DownstreamCommandError(
+      `Refusing to overwrite dirty destination ${relativePath}. Reconcile it with its overlay first.`,
+    );
+  }
+}
+
+function requireNoUnsupportedDeletions(rootDir: string): void {
+  if (!isGitWorktree(rootDir)) return;
+  const tag = git(rootDir, [
+    "tag",
+    "--merged",
+    "HEAD",
+    "--list",
+    "v*-nightly.*",
+    "--sort=-version:refname",
+  ])
+    .split("\n")
+    .find(Boolean);
+  if (!tag) return;
+
+  const deleted = git(rootDir, ["diff", "--diff-filter=D", "--name-only", tag, "--"])
+    .split("\n")
+    .filter((relativePath) => relativePath && !relativePath.startsWith("downstream/"));
+  if (deleted.length > 0) {
+    throw new DownstreamCommandError(
+      `The copy-only downstream overlay cannot preserve deleted upstream files: ${deleted.join(", ")}. Restore them or add a tested tombstone mechanism first.`,
+    );
+  }
+}
+
+function requireOverlayTestsExcluded(rootDir: string): void {
+  const hasMirroredTests = overlayFiles(rootDir).some((relativePath) =>
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(relativePath),
+  );
+  if (!hasMirroredTests) return;
+
+  const configPath = NodePath.join(rootDir, "vite.config.ts");
+  const config = NodeFS.existsSync(configPath) ? NodeFS.readFileSync(configPath, "utf8") : "";
+  if (!/["']\*\*\/downstream\/t3code\/\*\*["']/.test(config)) {
+    throw new DownstreamCommandError(
+      "Mirrored tests are executable because vite.config.ts does not exclude **/downstream/t3code/**.",
+    );
+  }
+}
+
 function requireDownstreamAgents(rootDir: string): void {
   const sourcePath = NodePath.join(rootDir, "downstream", "t3code", "AGENTS.md");
   if (!NodeFS.existsSync(sourcePath)) {
@@ -123,8 +262,7 @@ function requireDownstreamAgents(rootDir: string): void {
   }
 }
 
-function overlayFiles(rootDir: string): ReadonlyArray<string> {
-  const overlayRoot = NodePath.join(rootDir, "downstream", "t3code");
+function filesUnder(directory: string): ReadonlyArray<string> {
   const files: Array<string> = [];
   const visit = (directory: string, prefix = ""): void => {
     for (const entry of NodeFS.readdirSync(directory, { withFileTypes: true })) {
@@ -138,8 +276,50 @@ function overlayFiles(rootDir: string): ReadonlyArray<string> {
       }
     }
   };
-  visit(overlayRoot);
+  visit(directory);
   return files.toSorted();
+}
+
+function overlayFiles(rootDir: string): ReadonlyArray<string> {
+  return filesUnder(NodePath.join(rootDir, "downstream", "t3code"));
+}
+
+function installDownstreamSkills(rootDir: string, agentsSkillsDir: string): boolean {
+  const sourceRoot = NodePath.join(rootDir, "downstream", "skills");
+  if (!NodeFS.existsSync(sourceRoot)) return false;
+
+  const entries = NodeFS.readdirSync(sourceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      throw new DownstreamCommandError(`Unsupported downstream skill entry: ${entry.name}`);
+    }
+    if (!NodeFS.existsSync(NodePath.join(sourceRoot, entry.name, "SKILL.md"))) {
+      throw new DownstreamCommandError(`Downstream skill is missing SKILL.md: ${entry.name}`);
+    }
+  }
+
+  let changed = false;
+  for (const entry of entries) {
+    const sourcePath = NodePath.join(sourceRoot, entry.name);
+    const destinationPath = NodePath.join(agentsSkillsDir, entry.name);
+    const sourceFiles = filesUnder(sourcePath);
+    const destinationMatches =
+      NodeFS.existsSync(destinationPath) &&
+      NodeFS.statSync(destinationPath).isDirectory() &&
+      sourceFiles.join("\n") === filesUnder(destinationPath).join("\n") &&
+      sourceFiles.every((relativePath) =>
+        NodeFS.readFileSync(NodePath.join(sourcePath, relativePath)).equals(
+          NodeFS.readFileSync(NodePath.join(destinationPath, relativePath)),
+        ),
+      );
+    if (destinationMatches) continue;
+
+    NodeFS.rmSync(destinationPath, { recursive: true, force: true });
+    NodeFS.mkdirSync(agentsSkillsDir, { recursive: true });
+    NodeFS.cpSync(sourcePath, destinationPath, { recursive: true });
+    changed = true;
+  }
+  return changed;
 }
 
 function rootAgentsBlockRange(
@@ -163,8 +343,10 @@ function rootAgentsBlockRange(
   return { start, end: endMarker + ROOT_AGENTS_END.length };
 }
 
-export function initDownstream(rootDir: string): boolean {
+export function initDownstream(rootDir: string, options: InitDownstreamOptions = {}): boolean {
   requireDownstreamAgents(rootDir);
+  verifyOverlayOwnership(rootDir);
+  requireNoUnsupportedDeletions(rootDir);
   const files = overlayFiles(rootDir);
   for (const relativePath of files) {
     const [firstSegment] = relativePath.split(NodePath.sep);
@@ -188,9 +370,27 @@ export function initDownstream(rootDir: string): boolean {
   updated = `${updated.trimEnd()}\n\n${ROOT_AGENTS_POINTER}\n`;
 
   let changed = updated !== current;
-  if (changed) NodeFS.writeFileSync(rootAgentsPath, updated);
+  if (changed) requireSafeOverwrite(rootDir, "AGENTS.md");
 
   const overlayRoot = NodePath.join(rootDir, "downstream", "t3code");
+  for (const relativePath of files) {
+    if (relativePath === "AGENTS.md") continue;
+    const sourcePath = NodePath.join(overlayRoot, relativePath);
+    const destinationPath = NodePath.join(rootDir, relativePath);
+    if (
+      NodeFS.existsSync(destinationPath) &&
+      !NodeFS.readFileSync(destinationPath).equals(NodeFS.readFileSync(sourcePath))
+    ) {
+      requireSafeOverwrite(rootDir, relativePath);
+    }
+  }
+
+  const skillsChanged = installDownstreamSkills(
+    rootDir,
+    options.agentsSkillsDir ?? NodePath.join(NodeOS.homedir(), ".agents", "skills"),
+  );
+  if (changed) NodeFS.writeFileSync(rootAgentsPath, updated);
+
   for (const relativePath of files) {
     if (relativePath === "AGENTS.md") continue;
     const sourcePath = NodePath.join(overlayRoot, relativePath);
@@ -203,11 +403,14 @@ export function initDownstream(rootDir: string): boolean {
     NodeFS.copyFileSync(sourcePath, destinationPath);
     changed = true;
   }
-  return changed;
+  return changed || skillsChanged;
 }
 
 export function verifyDownstream(rootDir: string): void {
   requireDownstreamAgents(rootDir);
+  verifyOverlayOwnership(rootDir);
+  requireNoUnsupportedDeletions(rootDir);
+  requireOverlayTestsExcluded(rootDir);
   const contents = NodeFS.readFileSync(NodePath.join(rootDir, "AGENTS.md"), "utf8");
   const pointers = contents.split("\n").filter((line) => line === ROOT_AGENTS_POINTER);
   if (
@@ -318,7 +521,6 @@ export function rollDownstream(
       tag,
       branch,
       changeRecords,
-      overlayChanged: initDownstream(rootDir),
     };
   }
 
@@ -353,7 +555,6 @@ export function rollDownstream(
     tag,
     branch: syncBranch,
     changeRecords,
-    overlayChanged: initDownstream(rootDir),
   };
 }
 
@@ -428,18 +629,14 @@ function printRollResult(result: DownstreamRollResult): void {
   if (result.kind === "current") {
     console.log(`Downstream main already contains ${result.tag}.`);
     printChangeRecords(result.changeRecords);
-    if (result.overlayChanged) {
-      console.log("Applied the downstream overlay; review and commit the resulting files.");
-    }
     return;
   }
 
   console.log(`Merged ${result.tag} into ${result.branch}.`);
   printChangeRecords(result.changeRecords);
-  if (result.overlayChanged) {
-    console.log("Applied the downstream overlay; review and commit the resulting files.");
-  }
-  console.log("Next: review active changes, run their validation, then run:");
+  console.log("Next: use $merge-t3code-downstream to reconcile every overlay before running init.");
+  console.log("Then run active change validation followed by:");
+  console.log("  vp node downstream/tools/downstream.ts init");
   console.log("  vp run build:desktop");
   console.log("  vp node downstream/tools/downstream.ts build");
   console.log(`  git push -u origin ${result.branch}`);
@@ -467,8 +664,8 @@ function main(): void {
     if (values.tag) throw new DownstreamCommandError("--tag is only valid with roll.");
     console.log(
       initDownstream(rootDir)
-        ? "Applied the downstream overlay."
-        : "Downstream overlay is already applied.",
+        ? "Initialized downstream overlays and skills."
+        : "Downstream overlays and skills are already initialized.",
     );
     return;
   }
@@ -494,7 +691,10 @@ if (import.meta.main) {
   } catch (error) {
     if (error instanceof DownstreamMergeConflictError) {
       console.error(error.message);
-      console.error("Resolve the conflicts, review downstream/changes, then run:");
+      console.error(
+        "Use $merge-t3code-downstream to resolve conflicts and reconcile every overlay.",
+      );
+      console.error("After both copies match, run:");
       console.error("  vp node downstream/tools/downstream.ts init");
       console.error("Review and add every resolved and applied file before committing the merge.");
       console.error("Use 'git merge --abort' to return to downstream main.");

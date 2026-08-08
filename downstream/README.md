@@ -2,6 +2,23 @@
 
 This fork is a maintained downstream build of T3 Code. Official nightlies provide immutable upstream baselines; `origin/main` is the integrated version we build and run.
 
+## Documentation
+
+Start with the [downstream documentation index](docs/README.md). The upstream
+[`docs/`](../docs/README.md) tree remains the source of truth for shared T3 Code architecture and
+user behavior; the downstream docs cover only the fork-specific layer:
+
+- [Product Boundary](docs/product-boundary.md) defines owned and supported product surfaces.
+- [Compatibility](docs/compatibility.md) covers nightly, contract, version, settings, and data rules.
+- [Release and Distribution](docs/release-and-distribution.md) separates the current local artifact
+  path from future publication requirements.
+- [Feature Lifecycle](docs/feature-lifecycle.md) is the required workflow for adding, rolling, and
+  removing a downstream change.
+- [Services and Security](docs/services-and-security.md) defines hosted-service, credential, pairing,
+  and workflow boundaries.
+- [Provider Architecture](docs/providers.md) maps the provider model and the checklist for adding one
+  downstream.
+
 ```text
 upstream nightly tag
          |
@@ -37,7 +54,12 @@ vp node downstream/tools/downstream.ts verify
 
 A nightly update merges an upstream tag into downstream `main`; it never resets `main` to an upstream tag. That is why `downstream/`, its tools, and downstream product changes remain available while the upstream tree advances. A raw upstream checkout must retrieve `downstream/` from the fork before it can run the initializer.
 
-All downstream-only maintenance code lives under `downstream/tools/`. `downstream/t3code/` mirrors paths in the T3 Code tree that the initializer must restore after an upstream update; its `AGENTS.md` is the one intentional special case because the initializer appends a pointer to it instead of replacing upstream's root instructions. Product code still runs from the normal repository paths so the integrated build and CI exercise the real tree.
+Downstream-only maintenance code lives under `downstream/tools/`, and repo-owned maintenance skills
+live under `downstream/skills/`. Init installs each skill into `~/.agents/skills/`.
+`downstream/t3code/` mirrors paths in the T3 Code tree that the initializer restores after review;
+its `AGENTS.md` is the one intentional special case because the initializer appends a pointer to it
+instead of replacing upstream's root instructions. Product code still runs from the normal
+repository paths so the integrated build and CI exercise the real tree.
 
 To rebuild from a disposable official checkout, retrieve only the control layer from the fork and apply it:
 
@@ -53,7 +75,25 @@ vp node downstream/tools/downstream.ts init
 vp node downstream/tools/downstream.ts verify
 ```
 
-No symlink is involved, so the resulting tree works in a fresh clone and in CI. Add each downstream-owned file under `downstream/t3code/` at the same relative path it has in the repository. The initializer copies those files over the upstream tree; root `AGENTS.md` remains composed because replacing it would discard new upstream instructions.
+No symlink is involved, so the resulting tree works in a fresh clone and in CI. Add each downstream-owned file under `downstream/t3code/` at the same relative path it has in the repository. The initializer installs repo-owned skills and copies reviewed overlays over the upstream tree; root `AGENTS.md` remains composed because replacing it would discard new upstream instructions.
+
+## Overlay Contract
+
+Product code and tests execute only from their normal T3 paths. Every downstream-owned normal file
+must have a byte-identical full-file copy at the same relative path under `downstream/t3code/`, and
+exactly one active `downstream/changes/<slug>.md` record must list that path under `## Overlay Files`.
+The record makes ownership, nightly review, validation, and later removal intentional; an unowned
+overlay is invalid.
+
+The overlay is copy-only. It can add or replace a complete file, but it cannot represent deletion of
+an upstream-tracked file. Do not delete an upstream file as a downstream deviation unless the
+downstream tool first gains an explicit, tested tombstone mechanism. Mirrored tests remain inert
+under `downstream/t3code/` and run only from their normal paths; the root test configuration must
+exclude the overlay tree.
+
+`init` restores already-reviewed overlays; it is not a conflict resolver. It refuses to overwrite a
+dirty destination that differs from its overlay. During a nightly roll, reconcile the normal file
+and overlay first with `$merge-t3code-downstream`, then run `init` and `verify`.
 
 ## Machine Setup
 
@@ -85,7 +125,9 @@ git config --local rerere.autoupdate false
 
 ## Adding a Downstream Change
 
-Start from downstream `main`, put executable code and tests in their normal repository paths, and keep each concern in a coherent commit or short commit series. Add `downstream/changes/<slug>.md` with these sections:
+Follow the [Feature Lifecycle](docs/feature-lifecycle.md). Start from downstream `main`, put
+executable code and tests in their normal repository paths, and keep each concern in a coherent
+commit or short commit series. Add `downstream/changes/<slug>.md` with these sections:
 
 ```markdown
 # Change name
@@ -94,14 +136,23 @@ Start from downstream `main`, put executable code and tests in their normal repo
 
 ## Affected Surfaces
 
+## Overlay Files
+
 ## Validation
 
 ## Removal Condition
 ```
 
-A provider addition must make an explicit decision for contracts, server lifecycle, authentication and configuration, shared client runtime, web, desktop, and mobile. A bug patch should fix the shared root cause and retain the smallest focused regression test.
+A provider addition must also follow [Provider Architecture](docs/providers.md) and make an explicit
+decision for contracts, server lifecycle, authentication and configuration, shared client runtime,
+web, desktop, and mobile. A bug patch should fix the shared root cause and retain the smallest
+focused regression test.
 
-Every downstream-owned source file must have an exact counterpart under `downstream/t3code/`. When a nightly changes an upstream file that we also own, review the new upstream version and update both the working file and its overlay copy; `verify` rejects byte drift between them.
+Every downstream-owned source, test, and configuration file must follow the [Overlay
+Contract](#overlay-contract). When a nightly changes an upstream file that we also own, review the
+new upstream version and update both the working file and its overlay copy; `verify` rejects byte
+drift, missing or duplicate change-record ownership, stale record entries, unsupported upstream-file
+deletions, and executable mirrored tests.
 
 ## Rolling to a Nightly
 
@@ -118,24 +169,36 @@ The command verifies clean state and required remotes, fetches `origin` and upst
 vp node downstream/tools/downstream.ts roll --tag vX.Y.Z-nightly.YYYYMMDD.RUN
 ```
 
-The tool does not push, open a pull request, resolve conflicts, or merge the sync branch into downstream `main`. Those are review boundaries, not setup chores. After a clean merge it also runs the downstream initializer, which preserves upstream's root `AGENTS.md` and restores one final line requiring agents to read `downstream/t3code/AGENTS.md`.
+The tool does not push, open a pull request, resolve conflicts, apply overlays, or merge the sync
+branch into downstream `main`. Those are review boundaries, not setup chores. After its upstream
+merge, use `$merge-t3code-downstream` to reconcile every overlapping full-file overlay before
+running init.
 
 ## Resolving and Validating a Roll
 
-Resolve conflicts according to the current upstream architecture rather than mechanically preferring either side. Review every active file under `downstream/changes/`, remove deviations already supplied upstream, and run every command in each record's `Validation` section.
+Use `$merge-t3code-downstream` after the upstream merge, including when Git reports no conflicts.
+The skill compares the previous accepted nightly, the new upstream nightly, the Git-merged source,
+and each full-file overlay so a stale overlay cannot silently erase an upstream edit. Follow the
+[nightly compatibility check](docs/compatibility.md#nightly-compatibility-check), review every active
+file under `downstream/changes/`, remove deviations already supplied upstream, and run every command
+in each record's `Validation` section.
 
 When Git reports conflicts:
 
 ```bash
 git status --short
-# edit and review each conflicted file
+# use $merge-t3code-downstream to resolve conflicts and synchronize both copies
 vp node downstream/tools/downstream.ts init
 git status --short
 git add <all-resolved-and-applied-files>
 git commit
 ```
 
-Use `git merge --abort` to abandon the roll and return to downstream `main`. Git keeps `main` on the last accepted baseline until the sync branch is explicitly integrated. The init command is idempotent: it removes the obsolete embedded downstream block if present, preserves the upstream file, and leaves exactly one downstream pointer as the final line.
+Use `git merge --abort` to abandon the roll and return to downstream `main`. Git keeps `main` on the
+last accepted baseline until the sync branch is explicitly integrated. The init command is
+idempotent: it installs `downstream/skills/` into `~/.agents/skills/`, applies the reviewed overlays,
+removes the obsolete embedded downstream block if present, preserves upstream's root instructions,
+and leaves exactly one downstream pointer as the final line.
 
 Verify the instruction invariant at any time:
 
@@ -160,6 +223,10 @@ Do not squash the nightly roll; the upstream merge ancestry records the accepted
 
 ## Building an Installable Artifact
 
+Read [Release and Distribution](docs/release-and-distribution.md) before distributing an artifact;
+the current command builds a local host-platform artifact but does not establish independent product
+identity, remote server distribution, signing, or an update channel.
+
 Build the current clean commit with a unique downstream version:
 
 ```bash
@@ -174,7 +241,10 @@ For a compile-only check, use `vp run build:desktop`. For development, use the e
 
 ## Removing a Downstream Change
 
-When upstream ships equivalent behavior, remove the redundant downstream implementation and its active change record during the next roll. Keep a regression test only when it still protects behavior that upstream does not already cover.
+When upstream ships equivalent behavior, restore its normal files, remove the redundant overlay
+files and active change record during the next roll, and keep a regression test only when it still
+protects behavior that upstream does not already cover. A downstream-only deletion of an upstream
+file remains unsupported by the copy-only overlay.
 
 ## What Git Already Handles
 
