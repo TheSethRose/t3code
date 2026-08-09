@@ -12,21 +12,23 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 
-import { makeHermesAcpRuntime, resolveHermesAcpArgs } from "../acp/HermesAcpRuntime.ts";
+import { makeHermesAcpRuntimePool, resolveHermesAcpArgs } from "../acp/HermesAcpRuntime.ts";
 import { makeHermesAdapter } from "./HermesAdapter.ts";
 
 const mockPeerPath = new URL("./fixtures/hermes-adapter-mock-peer.ts", import.meta.url).pathname;
 const mockHermesPath = new URL("./fixtures/hermes-adapter-mock", import.meta.url).pathname;
 
-it("always scopes the ACP child to the configured Hermes profile", () => {
+it("always scopes the ACP child to the selected Hermes profile", () => {
   assert.deepEqual(
-    resolveHermesAcpArgs({
-      enabled: true,
-      binaryPath: "hermes",
-      profile: "work",
-      launchArgs: "acp --accept-hooks",
-      authMethodId: "",
-    }),
+    resolveHermesAcpArgs(
+      {
+        enabled: true,
+        binaryPath: "hermes",
+        launchArgs: "acp --accept-hooks",
+        authMethodId: "",
+      },
+      "work",
+    ),
     ["-p", "work", "acp", "--accept-hooks"],
   );
 });
@@ -35,17 +37,18 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
   it.effect("maps Hermes permission scopes and settles repeated and interrupted turns", () =>
     Effect.gen(function* () {
       const instanceId = ProviderInstanceId.make("hermes_test");
-      const runtime = yield* makeHermesAcpRuntime({
+      const runtimes = yield* makeHermesAcpRuntimePool({
         enabled: true,
         binaryPath: mockHermesPath,
-        profile: "default",
         launchArgs: mockPeerPath,
         authMethodId: "",
       });
-      const adapter = yield* makeHermesAdapter(runtime, {
+      const adapter = yield* makeHermesAdapter(runtimes, {
         instanceId,
-        model: "hermes/default",
-        skills: ["alpha"],
+        skills: [
+          { profile: "default", names: ["alpha"] },
+          { profile: "x_agent", names: ["x-only"] },
+        ],
       });
       const threadId = ThreadId.make("acp-thread");
       const events: ProviderRuntimeEvent[] = [];
@@ -84,6 +87,7 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
         providerInstanceId: instanceId,
         cwd: process.cwd(),
         runtimeMode: "full-access",
+        modelSelection: { instanceId, model: "hermes/default" },
       });
       assert.equal(session.providerInstanceId, instanceId);
 
@@ -98,6 +102,7 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
         providerInstanceId: instanceId,
         cwd: process.cwd(),
         runtimeMode: "full-access",
+        modelSelection: { instanceId, model: "hermes/default" },
       });
       yield* Effect.all(
         [
@@ -113,6 +118,24 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
       );
       assert.equal(processIds.length, 2);
       assert.equal(new Set(processIds).size, 1);
+
+      const thirdThreadId = ThreadId.make("hermes-thread-3");
+      yield* adapter.startSession({
+        threadId: thirdThreadId,
+        provider: ProviderDriverKind.make("hermes"),
+        providerInstanceId: instanceId,
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        modelSelection: { instanceId, model: "hermes/x_agent" },
+      });
+      yield* adapter.sendTurn({ threadId: thirdThreadId, input: "process" });
+      const allProcessIds = events.flatMap((event) =>
+        event.type === "content.delta" && /^\d+$/.test(event.payload.delta)
+          ? [event.payload.delta]
+          : [],
+      );
+      assert.equal(allProcessIds.length, 3);
+      assert.notEqual(allProcessIds[0], allProcessIds[2]);
 
       yield* adapter.sendTurn({ threadId, input: "$alpha inspect" });
       assert.ok(
@@ -138,8 +161,8 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
             event.payload.delta === "auth:test-provider;selected:allow_session",
         ),
       );
-      assert.equal(events.filter((event) => event.type === "turn.started").length, 6);
-      assert.equal(events.filter((event) => event.type === "turn.completed").length, 6);
+      assert.equal(events.filter((event) => event.type === "turn.started").length, 7);
+      assert.equal(events.filter((event) => event.type === "turn.completed").length, 7);
       assert.ok(events.every((event) => event.providerInstanceId === instanceId));
       assert.ok(
         events.some(
@@ -148,6 +171,7 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
       );
       yield* adapter.stopSession(threadId);
       yield* adapter.stopSession(secondThreadId);
+      yield* adapter.stopSession(thirdThreadId);
     }),
   );
 });

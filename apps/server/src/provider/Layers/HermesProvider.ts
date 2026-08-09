@@ -8,6 +8,7 @@ import * as Result from "effect/Result";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
 import { discoverHermesSkills } from "../Drivers/HermesSkills.ts";
+import { discoverHermesProfiles, type HermesProfile } from "../Drivers/HermesProfiles.ts";
 import {
   buildServerProvider,
   isCommandMissingCause,
@@ -36,13 +37,14 @@ export function isSupportedHermesVersion(version: string | null): boolean {
   return true;
 }
 
-export function hermesProfileModel(profile: string): ServerProviderModel {
-  const name = profile.trim() || "default";
+export function hermesProfileModel(profile: HermesProfile): ServerProviderModel {
   return {
-    slug: `hermes/${name}`,
-    name: `Hermes · ${name}`,
+    slug: `hermes/${profile.name}`,
+    name: profile.name,
+    shortName: profile.name,
+    subProvider: "Hermes",
     isCustom: false,
-    isDefault: true,
+    isDefault: profile.isDefault,
     capabilities: CAPABILITIES,
   };
 }
@@ -67,7 +69,7 @@ export const buildInitialHermesProviderSnapshot = (settings: HermesSettings) =>
       presentation: PRESENTATION,
       enabled: settings.enabled,
       checkedAt,
-      models: [hermesProfileModel(settings.profile)],
+      models: [],
       probe: settings.enabled
         ? {
             installed: true,
@@ -96,16 +98,25 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
     Effect.timeoutOption(TIMEOUT_MS),
     Effect.result,
   );
-  const skillsResult = yield* discoverHermesSkills(settings, environment).pipe(Effect.result);
+  const profilesResult = yield* discoverHermesProfiles(settings, environment).pipe(Effect.result);
+  const profiles = Result.isSuccess(profilesResult) ? profilesResult.success : [];
+  const skillsResult = yield* Effect.forEach(
+    profiles,
+    (profile) => discoverHermesSkills(settings, profile.name, environment),
+    { concurrency: 4 },
+  ).pipe(
+    Effect.map((groups) => groups.flat()),
+    Effect.result,
+  );
   const skills = Result.isSuccess(skillsResult) ? skillsResult.success : [];
-  const model = hermesProfileModel(settings.profile);
+  const models = profiles.map(hermesProfileModel);
 
   if (Result.isFailure(result)) {
     return buildServerProvider({
       presentation: PRESENTATION,
       enabled: true,
       checkedAt,
-      models: [model],
+      models,
       skills,
       probe: {
         installed: !isCommandMissingCause(result.failure),
@@ -123,7 +134,7 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
       presentation: PRESENTATION,
       enabled: true,
       checkedAt,
-      models: [model],
+      models,
       skills,
       probe: {
         installed: true,
@@ -138,21 +149,24 @@ export const checkHermesProviderStatus = Effect.fn("checkHermesProviderStatus")(
   const command = result.success.value;
   const version = parseGenericCliVersion(`${command.stdout}\n${command.stderr}`);
   const supported = command.code === 0 && isSupportedHermesVersion(version);
-  const skillProbeFailed = Result.isFailure(skillsResult);
+  const inventoryProbeFailed =
+    Result.isFailure(profilesResult) ||
+    (Result.isSuccess(profilesResult) && profilesResult.success.length === 0) ||
+    Result.isFailure(skillsResult);
   return buildServerProvider({
     presentation: PRESENTATION,
     enabled: true,
     checkedAt,
-    models: [model],
+    models,
     skills,
     probe: {
       installed: true,
       version,
-      status: supported ? (skillProbeFailed ? "warning" : "ready") : "error",
+      status: supported ? (inventoryProbeFailed ? "warning" : "ready") : "error",
       auth: { status: supported ? "authenticated" : "unknown" },
       ...(supported
-        ? skillProbeFailed
-          ? { message: "Hermes is ready, but its enabled skill catalog could not be loaded." }
+        ? inventoryProbeFailed
+          ? { message: "Hermes is ready, but its profiles or enabled skills could not be loaded." }
           : {}
         : {
             message:

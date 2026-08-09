@@ -34,13 +34,14 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
-import type { HermesAcpRuntime } from "../acp/HermesAcpRuntime.ts";
+import type { HermesAcpRuntime, HermesAcpRuntimePool } from "../acp/HermesAcpRuntime.ts";
 import {
   makeAcpContentDeltaEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
+import { hermesProfileFromModel } from "../Drivers/HermesProfiles.ts";
 
 const PROVIDER = ProviderDriverKind.make("hermes");
 
@@ -79,6 +80,8 @@ interface PendingUserInput {
 }
 
 interface HermesSessionContext {
+  readonly profile: string;
+  readonly runtime: HermesAcpRuntime;
   readonly sessionId: string;
   session: ProviderSession;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
@@ -108,11 +111,13 @@ function settleUserInputs(
 
 // ponytail: minimal ACP adapter following GrokAdapter's runtime pattern
 export function makeHermesAdapter(
-  runtime: HermesAcpRuntime,
+  runtimes: HermesAcpRuntimePool,
   options: {
     readonly instanceId: ProviderInstanceId;
-    readonly model: string;
-    readonly skills?: ReadonlyArray<string>;
+    readonly skills?: ReadonlyArray<{
+      readonly profile: string;
+      readonly names: ReadonlyArray<string>;
+    }>;
   },
 ) {
   return Effect.gen(function* () {
@@ -121,12 +126,18 @@ export function makeHermesAdapter(
     const sessionsById = new Map<string, HermesSessionContext>();
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
-    const skills = new Set(options.skills ?? []);
+    const runtimeLock = yield* Semaphore.make(1);
+    const registeredRuntimes = new Set<string>();
+    const skills = new Map(
+      (options.skills ?? []).map(({ profile, names }) => [profile, new Set(names)] as const),
+    );
+    const sessionKey = (profile: string, sessionId: string) => `${profile}\0${sessionId}`;
 
-    const preparePrompt = (input: string): string => {
+    const preparePrompt = (profile: string, input: string): string => {
+      const profileSkills = skills.get(profile) ?? new Set<string>();
       const selected = [...input.matchAll(/\$([A-Za-z0-9][A-Za-z0-9._:-]*)/gu)]
         .map((match) => match[1]!)
-        .filter((name) => skills.has(name));
+        .filter((name) => profileSkills.has(name));
       if (selected.length === 0) return input;
       return `Before handling the request, call skill_view for each selected Hermes skill (${[...new Set(selected)].join(", ")}) and follow the returned instructions.\n\n${input}`;
     };
@@ -189,93 +200,107 @@ export function makeHermesAdapter(
         yield* settleApprovals(ctx.pendingApprovals);
         yield* settleUserInputs(ctx.pendingUserInputs);
         sessions.delete(ctx.session.threadId);
-        sessionsById.delete(ctx.sessionId);
+        sessionsById.delete(sessionKey(ctx.profile, ctx.sessionId));
       });
 
-    // Build notification handler for non-permission session updates
-    yield* runtime.handleSessionUpdate(
-      (notification: EffectAcpSchema.SessionNotification): Effect.Effect<void> =>
+    const registerRuntime = (profile: string, runtime: HermesAcpRuntime) =>
+      Effect.gen(function* () {
+        yield* runtime.handleSessionUpdate(
+          (notification: EffectAcpSchema.SessionNotification): Effect.Effect<void> =>
+            Effect.gen(function* () {
+              const ctx = sessionsById.get(sessionKey(profile, notification.sessionId));
+              if (!ctx || ctx.stopped) return;
+              const threadId = ctx.session.threadId;
+              const update = notification.update;
+              const turnId = ctx.activeTurnId;
+
+              if (update.sessionUpdate === "agent_message_chunk" && turnId) {
+                const content = update.content;
+                if (content.type === "text" && content.text) {
+                  yield* publish(
+                    makeAcpContentDeltaEvent({
+                      stamp: yield* makeStamp(),
+                      provider: PROVIDER,
+                      threadId,
+                      turnId,
+                      text: content.text,
+                      rawPayload: notification,
+                    }),
+                  );
+                }
+                return;
+              }
+
+              if (update.sessionUpdate === "tool_call" && turnId) {
+                // ponytail: tool_call events come through the ACP session; skip for now
+                return;
+              }
+            }).pipe(Effect.orDie),
+        );
+
+        yield* runtime.handleRequestPermission((params) => {
+          const ctx = sessionsById.get(sessionKey(profile, params.sessionId));
+          if (!ctx || ctx.stopped) {
+            return Effect.succeed({ outcome: { outcome: "cancelled" as const } });
+          }
+          return Effect.gen(function* () {
+            const permissionRequest = parsePermissionRequest(params);
+            const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
+            const runtimeRequestId = RuntimeRequestId.make(requestId);
+            const decision = yield* Deferred.make<ProviderApprovalDecision>();
+            const turnId = ctx.activeTurnId;
+            ctx.pendingApprovals.set(requestId, { decision });
+
+            yield* publish(
+              makeAcpRequestOpenedEvent({
+                stamp: yield* makeStamp(),
+                provider: PROVIDER,
+                threadId: ctx.session.threadId,
+                turnId,
+                requestId: runtimeRequestId,
+                permissionRequest: permissionRequest ?? params,
+                detail: permissionRequest?.detail ?? "Permission requested",
+                args: params,
+                source: "acp.jsonrpc",
+                method: "session/request_permission",
+                rawPayload: params,
+              }),
+            );
+
+            const resolved = yield* Deferred.await(decision);
+            ctx.pendingApprovals.delete(requestId);
+            yield* publish(
+              makeAcpRequestResolvedEvent({
+                stamp: yield* makeStamp(),
+                provider: PROVIDER,
+                threadId: ctx.session.threadId,
+                turnId,
+                requestId: runtimeRequestId,
+                permissionRequest: permissionRequest ?? params,
+                decision: resolved,
+              }),
+            );
+
+            const optionId =
+              resolved === "cancel" ? undefined : selectPermissionOptionId(params, resolved);
+            return !optionId
+              ? { outcome: { outcome: "cancelled" as const } }
+              : { outcome: { outcome: "selected" as const, optionId } };
+          }).pipe(Effect.catchCause(() => Effect.die("Hermes permission handler failed")));
+        });
+      });
+
+    const getRuntime = (profile: string) =>
+      runtimeLock.withPermit(
         Effect.gen(function* () {
-          const ctx = sessionsById.get(notification.sessionId);
-          if (!ctx || ctx.stopped) return;
-          const threadId = ctx.session.threadId;
-          const update = notification.update;
-          const turnId = ctx.activeTurnId;
-
-          if (update.sessionUpdate === "agent_message_chunk" && turnId) {
-            const content = update.content;
-            if (content.type === "text" && content.text) {
-              yield* publish(
-                makeAcpContentDeltaEvent({
-                  stamp: yield* makeStamp(),
-                  provider: PROVIDER,
-                  threadId,
-                  turnId,
-                  text: content.text,
-                  rawPayload: notification,
-                }),
-              );
-            }
-            return;
+          const runtime = yield* runtimes.get(profile);
+          if (!registeredRuntimes.has(profile)) {
+            yield* registerRuntime(profile, runtime);
+            registeredRuntimes.add(profile);
           }
-
-          if (update.sessionUpdate === "tool_call" && turnId) {
-            // ponytail: tool_call events come through the ACP session; skip for now
-            return;
-          }
-        }).pipe(Effect.orDie),
-    );
-
-    yield* runtime.handleRequestPermission((params) => {
-      const ctx = sessionsById.get(params.sessionId);
-      if (!ctx || ctx.stopped) {
-        return Effect.succeed({ outcome: { outcome: "cancelled" as const } });
-      }
-      return Effect.gen(function* () {
-        const permissionRequest = parsePermissionRequest(params);
-        const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
-        const runtimeRequestId = RuntimeRequestId.make(requestId);
-        const decision = yield* Deferred.make<ProviderApprovalDecision>();
-        const turnId = ctx.activeTurnId;
-        ctx.pendingApprovals.set(requestId, { decision });
-
-        yield* publish(
-          makeAcpRequestOpenedEvent({
-            stamp: yield* makeStamp(),
-            provider: PROVIDER,
-            threadId: ctx.session.threadId,
-            turnId,
-            requestId: runtimeRequestId,
-            permissionRequest: permissionRequest ?? params,
-            detail: permissionRequest?.detail ?? "Permission requested",
-            args: params,
-            source: "acp.jsonrpc",
-            method: "session/request_permission",
-            rawPayload: params,
-          }),
-        );
-
-        const resolved = yield* Deferred.await(decision);
-        ctx.pendingApprovals.delete(requestId);
-        yield* publish(
-          makeAcpRequestResolvedEvent({
-            stamp: yield* makeStamp(),
-            provider: PROVIDER,
-            threadId: ctx.session.threadId,
-            turnId,
-            requestId: runtimeRequestId,
-            permissionRequest: permissionRequest ?? params,
-            decision: resolved,
-          }),
-        );
-
-        const optionId =
-          resolved === "cancel" ? undefined : selectPermissionOptionId(params, resolved);
-        return !optionId
-          ? { outcome: { outcome: "cancelled" as const } }
-          : { outcome: { outcome: "selected" as const, optionId } };
-      }).pipe(Effect.catchCause(() => Effect.die("Hermes permission handler failed")));
-    });
+          return runtime;
+        }),
+      );
 
     // ── startSession ──
     const startSession = (
@@ -293,6 +318,15 @@ export function makeHermesAdapter(
           }
 
           const threadId = input.threadId;
+          const profile = hermesProfileFromModel(input.modelSelection?.model);
+          if (!profile) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "startSession",
+              issue: "A discovered Hermes profile must be selected.",
+            });
+          }
+          const runtime = yield* getRuntime(profile);
           const existing = sessions.get(threadId);
           if (existing && !existing.stopped) {
             yield* stopInternal(existing);
@@ -339,7 +373,7 @@ export function makeHermesAdapter(
             status: "ready",
             runtimeMode: input.runtimeMode,
             cwd,
-            model: options.model,
+            model: `hermes/${profile}`,
             activeTurnId: undefined,
             resumeCursor: { sessionId: started.sessionId },
             createdAt: yield* nowIso,
@@ -347,6 +381,8 @@ export function makeHermesAdapter(
           };
 
           const ctx: HermesSessionContext = {
+            profile,
+            runtime,
             sessionId: started.sessionId,
             session,
             pendingApprovals,
@@ -356,7 +392,7 @@ export function makeHermesAdapter(
             stopped: false,
           };
           sessions.set(threadId, ctx);
-          sessionsById.set(started.sessionId, ctx);
+          sessionsById.set(sessionKey(profile, started.sessionId), ctx);
 
           return session;
         }),
@@ -400,13 +436,18 @@ export function makeHermesAdapter(
               });
             }
 
-            return { sessionId: ctx.sessionId, turnId };
+            return { ctx, turnId };
           }),
         );
 
-        const promptExit = yield* runtime
-          .prompt(prepared.sessionId, {
-            prompt: [{ type: "text", text: preparePrompt(input.input ?? "") }],
+        const promptExit = yield* prepared.ctx.runtime
+          .prompt(prepared.ctx.sessionId, {
+            prompt: [
+              {
+                type: "text",
+                text: preparePrompt(prepared.ctx.profile, input.input ?? ""),
+              },
+            ],
           })
           .pipe(
             Effect.mapError((error) =>
@@ -501,7 +542,7 @@ export function makeHermesAdapter(
             return ctx;
           }),
         );
-        yield* runtime.cancel(prepared.sessionId).pipe(
+        yield* prepared.runtime.cancel(prepared.sessionId).pipe(
           Effect.mapError((error) =>
             mapAcpToAdapterError(PROVIDER, threadId, "session/cancel", error),
           ),

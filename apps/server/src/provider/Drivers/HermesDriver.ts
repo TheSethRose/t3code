@@ -16,7 +16,6 @@ import { makeHermesAdapter } from "../Layers/HermesAdapter.ts";
 import {
   buildInitialHermesProviderSnapshot,
   checkHermesProviderStatus,
-  hermesProfileModel,
 } from "../Layers/HermesProvider.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
@@ -36,7 +35,8 @@ import {
   makeProviderSnapshotSettingsSource,
   type ProviderSnapshotSettings,
 } from "../providerUpdateSettings.ts";
-import { makeHermesAcpRuntime } from "../acp/HermesAcpRuntime.ts";
+import { makeHermesAcpRuntimePool } from "../acp/HermesAcpRuntime.ts";
+import { discoverHermesProfiles } from "./HermesProfiles.ts";
 import { discoverHermesSkills } from "./HermesSkills.ts";
 
 const DRIVER_KIND = ProviderDriverKind.make("hermes");
@@ -73,7 +73,7 @@ const withInstanceIdentity =
 
 export const HermesDriver: ProviderDriver<HermesSettings, HermesDriverEnv> = {
   driverKind: DRIVER_KIND,
-  metadata: { displayName: "Hermes", supportsMultipleInstances: true },
+  metadata: { displayName: "Hermes", supportsMultipleInstances: false },
   configSchema: HermesSettings,
   defaultConfig: () => decodeSettings({}),
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
@@ -96,18 +96,29 @@ export const HermesDriver: ProviderDriver<HermesSettings, HermesDriverEnv> = {
         binaryPath: effectiveConfig.binaryPath,
         env: processEnv,
       });
-      const runtime = yield* makeHermesAcpRuntime(effectiveConfig, processEnv);
-      const model = hermesProfileModel(effectiveConfig.profile).slug;
-      const skills = yield* discoverHermesSkills(effectiveConfig, processEnv).pipe(
+      const profiles = yield* discoverHermesProfiles(effectiveConfig, processEnv).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.orElseSucceed(() => []),
       );
-      const adapter = yield* makeHermesAdapter(runtime, {
+      const skillGroups = yield* Effect.forEach(
+        profiles,
+        (profile) =>
+          discoverHermesSkills(effectiveConfig, profile.name, processEnv).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.orElseSucceed(() => []),
+            Effect.map((skills) => ({ profile: profile.name, skills })),
+          ),
+        { concurrency: 4 },
+      );
+      const runtimes = yield* makeHermesAcpRuntimePool(effectiveConfig, processEnv);
+      const adapter = yield* makeHermesAdapter(runtimes, {
         instanceId,
-        model,
-        skills: skills.map((skill) => skill.name),
+        skills: skillGroups.map(({ profile, skills }) => ({
+          profile,
+          names: skills.map((skill) => skill.name),
+        })),
       });
-      const textGeneration = yield* makeHermesTextGeneration(runtime);
+      const textGeneration = yield* makeHermesTextGeneration(runtimes);
       const checkProvider = checkHermesProviderStatus(effectiveConfig, processEnv).pipe(
         Effect.map(stampIdentity),
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),

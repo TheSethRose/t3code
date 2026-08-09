@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as ChildProcess from "effect/unstable/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -63,8 +64,10 @@ function parseLaunchArgs(raw: string): ReadonlyArray<string> {
   return args.length > 0 ? args : ["acp"];
 }
 
-export function resolveHermesAcpArgs(settings: HermesSettings): ReadonlyArray<string> {
-  const profile = settings.profile.trim() || "default";
+export function resolveHermesAcpArgs(
+  settings: HermesSettings,
+  profile: string,
+): ReadonlyArray<string> {
   return ["-p", profile, ...parseLaunchArgs(settings.launchArgs)];
 }
 
@@ -74,6 +77,7 @@ function isFatalConnectionError(error: AcpErrors.AcpError): boolean {
 
 export const makeHermesAcpRuntime = Effect.fn("makeHermesAcpRuntime")(function* (
   settings: HermesSettings,
+  profile: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): Effect.fn.Return<
   HermesAcpRuntime,
@@ -112,7 +116,7 @@ export const makeHermesAcpRuntime = Effect.fn("makeHermesAcpRuntime")(function* 
     const childScope = yield* Scope.make("sequential");
     return yield* Effect.gen(function* () {
       const command = settings.binaryPath || "hermes";
-      const args = resolveHermesAcpArgs(settings);
+      const args = resolveHermesAcpArgs(settings, profile);
       const spawnCommand = yield* resolveSpawnCommand(command, args, {
         env: environment,
         extendEnv: true,
@@ -242,4 +246,34 @@ export const makeHermesAcpRuntime = Effect.fn("makeHermesAcpRuntime")(function* 
         permissionHandler = handler;
       }),
   };
+});
+
+export interface HermesAcpRuntimePool {
+  readonly get: (profile: string) => Effect.Effect<HermesAcpRuntime>;
+}
+
+export const makeHermesAcpRuntimePool = Effect.fn("makeHermesAcpRuntimePool")(function* (
+  settings: HermesSettings,
+  environment: NodeJS.ProcessEnv = process.env,
+) {
+  const parentScope = yield* Scope.Scope;
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const lock = yield* Semaphore.make(1);
+  const runtimes = new Map<string, HermesAcpRuntime>();
+
+  return {
+    get: (profile) =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          const existing = runtimes.get(profile);
+          if (existing) return existing;
+          const runtime = yield* makeHermesAcpRuntime(settings, profile, environment).pipe(
+            Effect.provideService(Scope.Scope, parentScope),
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          );
+          runtimes.set(profile, runtime);
+          return runtime;
+        }),
+      ),
+  } satisfies HermesAcpRuntimePool;
 });

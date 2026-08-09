@@ -15,6 +15,7 @@ export function parseHermesSkillsList(
     if (!name || name === "Name") continue;
     skills.set(name, {
       name,
+      model: `hermes/${profile}`,
       path: `hermes://${encodeURIComponent(profile)}/skills/${encodeURIComponent(name)}`,
       scope: `Hermes profile: ${profile}`,
       enabled: true,
@@ -24,11 +25,11 @@ export function parseHermesSkillsList(
 }
 
 export const discoverHermesSkills = Effect.fn("discoverHermesSkills")(function* (
-  settings: Pick<HermesSettings, "binaryPath" | "profile">,
+  settings: Pick<HermesSettings, "binaryPath">,
+  profile: string,
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const binary = settings.binaryPath || "hermes";
-  const profile = settings.profile.trim() || "default";
   const command = yield* resolveSpawnCommand(
     binary,
     ["-p", profile, "skills", "list", "--enabled-only"],

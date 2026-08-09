@@ -504,14 +504,6 @@ export const HermesSettings = makeProviderSettingsSchema(
         providerSettingsForm: { placeholder: "hermes", clearWhenEmpty: "omit" },
       }),
     ),
-    profile: TrimmedString.pipe(
-      Schema.withDecodingDefault(Effect.succeed("default")),
-      Schema.annotateKey({
-        title: "Hermes profile",
-        description: "Hermes agent profile to use. The profile owns its model, skills, and memory.",
-        providerSettingsForm: { placeholder: "default", clearWhenEmpty: "omit" },
-      }),
-    ),
     launchArgs: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
@@ -530,7 +522,7 @@ export const HermesSettings = makeProviderSettingsSchema(
     ),
   },
   {
-    order: ["profile", "binaryPath", "launchArgs", "authMethodId"],
+    order: ["binaryPath", "launchArgs", "authMethodId"],
   },
 );
 export type HermesSettings = typeof HermesSettings.Type;
@@ -772,7 +764,6 @@ const OpenCodeSettingsPatch = Schema.Struct({
 const HermesSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
-  profile: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
   authMethodId: Schema.optionalKey(TrimmedString),
 });

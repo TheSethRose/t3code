@@ -21,7 +21,8 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
 } from "./TextGenerationUtils.ts";
-import type { HermesAcpRuntime } from "../provider/acp/HermesAcpRuntime.ts";
+import type { HermesAcpRuntimePool } from "../provider/acp/HermesAcpRuntime.ts";
+import { hermesProfileFromModel } from "../provider/Drivers/HermesProfiles.ts";
 
 const HERMES_TIMEOUT_MS = 180_000;
 
@@ -29,14 +30,14 @@ const isTextGenerationError = Schema.is(TextGenerationError);
 
 // ponytail: same structured-output pattern as GrokTextGeneration on the shared Hermes runtime
 export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(function* (
-  runtime: HermesAcpRuntime,
+  runtimes: HermesAcpRuntimePool,
 ) {
   const runHermesJson = <S extends Schema.Top>({
     operation,
     cwd,
     prompt,
     outputSchemaJson,
-    modelSelection: _modelSelection,
+    modelSelection,
   }: {
     operation:
       | "generateCommitMessage"
@@ -49,6 +50,14 @@ export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(fu
     modelSelection: ModelSelection;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
+      const profile = hermesProfileFromModel(modelSelection.model);
+      if (!profile) {
+        return yield* new TextGenerationError({
+          operation,
+          detail: "A discovered Hermes profile must be selected.",
+        });
+      }
+      const runtime = yield* runtimes.get(profile);
       const outputRef = yield* Ref.make("");
       const sessionIdRef = yield* Ref.make<string | undefined>(undefined);
       const removeHandler = yield* runtime.handleSessionUpdate((notification) =>
