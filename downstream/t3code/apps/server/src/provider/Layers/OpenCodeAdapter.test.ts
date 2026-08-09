@@ -379,11 +379,18 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         ),
       });
 
-      // The prompt targets the resumed id, and the turn re-surfaces the cursor.
-      NodeAssert.deepEqual(
-        (runtimeMock.state.promptCalls[0] as { sessionID: string }).sessionID,
-        "ses_persisted",
-      );
+      // The resumed turn targets the persisted session while keeping guidance
+      // in the hidden system channel and user content in the original part.
+      const promptCall = runtimeMock.state.promptCalls[0] as {
+        sessionID: string;
+        system: string;
+        parts: Array<{ type: string; text: string }>;
+      };
+      NodeAssert.equal(promptCall.sessionID, "ses_persisted");
+      NodeAssert.equal(promptCall.system, NO_PREVIEW_SYSTEM);
+      NodeAssert.deepEqual(promptCall.parts, [
+        { type: "text", text: "continue where we left off" },
+      ]);
       NodeAssert.deepEqual(result.resumeCursor, {
         schemaVersion: 1,
         sessionId: "ses_persisted",

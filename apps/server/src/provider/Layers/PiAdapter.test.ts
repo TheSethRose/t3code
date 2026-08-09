@@ -121,6 +121,28 @@ for await (const line of lines) {
         "hello from Pi",
       );
       yield* adapter.stopSession(threadId);
+
+      const resumedThreadId = ThreadId.make("pi-resumed-thread");
+      yield* adapter.startSession({
+        threadId: resumedThreadId,
+        provider: ProviderDriverKind.make("pi"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        resumeCursor: { schemaVersion: 1, sessionId: "pi-session-1" },
+      });
+      const resumedArgv = (yield* fileSystem.readFileString(
+        path.join(directory, "argv.json"),
+      )).split("\u0000");
+      assert.deepEqual(
+        resumedArgv.filter((argument) => argument === "--append-system-prompt"),
+        ["--append-system-prompt"],
+      );
+      assert.equal(
+        resumedArgv[resumedArgv.indexOf("--append-system-prompt") + 1],
+        buildT3Guidance({ hasPreviewTools: false }),
+      );
+      assert.equal(resumedArgv[resumedArgv.indexOf("--session-id") + 1], "pi-session-1");
+      yield* adapter.stopSession(resumedThreadId);
     }),
   );
 });

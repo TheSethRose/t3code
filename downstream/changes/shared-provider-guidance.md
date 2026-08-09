@@ -1,5 +1,7 @@
 # Shared provider guidance
 
+GitHub: #6
+
 ## Why
 
 T3 authored developer instructions only for Codex. Pi, OpenCode, Hermes, Cursor, Grok, and Claude
@@ -21,7 +23,8 @@ tools that were not attached to its session.
   Codex mode blocks, `request_user_input`, `update_plan`, `<proposed_plan>`, and runtime info are
   unchanged.
 - Claude: `apps/server/src/provider/Layers/ClaudeAdapter.ts` appends shared guidance to the native
-  `claude_code` system-prompt preset (`append`), gated on `t3-code` MCP presence.
+  `claude_code` system-prompt preset (`append`), with preview guidance gated on `t3-code` MCP
+  presence.
 - OpenCode: `apps/server/src/provider/Layers/OpenCodeAdapter.ts` sends shared guidance through the
   SDK's native `system` field on `promptAsync`, gated on `t3-code` MCP presence and non-external
   server. Native agent, project instructions, and parts are untouched.
@@ -41,6 +44,8 @@ tools that were not attached to its session.
 - `apps/server/src/provider/CodexDeveloperInstructions.ts`
 - `apps/server/src/provider/Layers/ClaudeAdapter.test.ts`
 - `apps/server/src/provider/Layers/ClaudeAdapter.ts`
+- `apps/server/src/provider/Layers/CursorAdapter.test.ts`
+- `apps/server/src/provider/Layers/GrokAdapter.test.ts`
 - `apps/server/src/provider/Layers/OpenCodeAdapter.ts`
 - `apps/server/src/provider/T3Guidance.test.ts`
 - `apps/server/src/provider/T3Guidance.ts`
@@ -52,6 +57,9 @@ vp test run apps/server/src/provider/T3Guidance.test.ts \
   apps/server/src/provider/Layers/CodexSessionRuntime.test.ts \
   apps/server/src/provider/Layers/CodexAdapter.test.ts \
   apps/server/src/provider/Layers/ClaudeAdapter.test.ts \
+  apps/server/src/provider/Layers/CursorAdapter.test.ts \
+  apps/server/src/provider/Layers/GrokAdapter.test.ts \
+  apps/server/src/provider/Layers/HermesAdapter.test.ts \
   apps/server/src/provider/Layers/OpenCodeAdapter.test.ts \
   apps/server/src/provider/Layers/PiAdapter.test.ts
 (cd apps/server && vp run typecheck)
@@ -60,10 +68,9 @@ git diff --check
 ```
 
 Focused tests cover composition, capability gating (no `preview_*` guidance without the MCP),
-exactly-once delivery per adapter, Codex plan/default mode retention, Pi launch-arg delivery with
-no duplication, Claude preset retention, OpenCode `system` field with native parts unchanged, and
-provider neutrality (shared guidance contains no Codex protocol tokens, so ACP adapters cannot leak
-protocol-invalid content).
+Codex plan/default mode retention, Claude/OpenCode/Pi resumed-session delivery without duplicate
+injection or user-content rewriting, and ACP request shapes for Cursor, Grok, and Hermes. Shared
+guidance also contains no Codex protocol tokens.
 
 ## Removal Condition
 

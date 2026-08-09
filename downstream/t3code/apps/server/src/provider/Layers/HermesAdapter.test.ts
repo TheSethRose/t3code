@@ -94,6 +94,15 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
       const permissionTurn = yield* adapter.sendTurn({ threadId, input: "permission" });
       const nextTurn = yield* adapter.sendTurn({ threadId, input: "next" });
       assert.notEqual(permissionTurn.turnId, nextTurn.turnId);
+      assert.isTrue(
+        events.some((event) => event.type === "content.delta" && event.payload.delta === "next"),
+      );
+      yield* adapter.sendTurn({ threadId, input: "shape" });
+      assert.isTrue(
+        events.some(
+          (event) => event.type === "content.delta" && event.payload.delta === "prompt,sessionId",
+        ),
+      );
 
       const secondThreadId = ThreadId.make("hermes-thread-2");
       yield* adapter.startSession({
@@ -161,8 +170,8 @@ it.layer(NodeServices.layer)("HermesAdapter", (it) => {
             event.payload.delta === "auth:test-provider;selected:allow_session",
         ),
       );
-      assert.equal(events.filter((event) => event.type === "turn.started").length, 7);
-      assert.equal(events.filter((event) => event.type === "turn.completed").length, 7);
+      assert.equal(events.filter((event) => event.type === "turn.started").length, 8);
+      assert.equal(events.filter((event) => event.type === "turn.completed").length, 8);
       assert.ok(events.every((event) => event.providerInstanceId === instanceId));
       assert.ok(
         events.some(

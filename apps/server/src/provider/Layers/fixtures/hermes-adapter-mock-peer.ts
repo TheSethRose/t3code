@@ -88,7 +88,15 @@ const program = Effect.gen(function* () {
         sessionId: request.sessionId,
         update: {
           sessionUpdate: "agent_message_chunk",
-          content: { type: "text", text: text === "process" ? String(process.pid) : text },
+          content: {
+            type: "text",
+            text:
+              text === "process"
+                ? String(process.pid)
+                : text === "shape"
+                  ? Object.keys(request).sort().join(",")
+                  : text,
+          },
         },
       });
       if (text === "hold") {
