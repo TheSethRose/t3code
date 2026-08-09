@@ -1,6 +1,5 @@
 import {
   ApprovalRequestId,
-  type AcpSettings,
   EventId,
   type ProviderApprovalDecision,
   type ProviderRuntimeEvent,
@@ -22,40 +21,50 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
-import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
-import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
-  ProviderAdapterProcessError,
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { mapAcpToAdapterError } from "../acp/AcpAdapterSupport.ts";
-import type * as AcpSessionRuntime from "../acp/AcpSessionRuntime.ts";
+import type { HermesAcpRuntime } from "../acp/HermesAcpRuntime.ts";
 import {
-  makeAcpAssistantItemEvent,
   makeAcpContentDeltaEvent,
   makeAcpRequestOpenedEvent,
   makeAcpRequestResolvedEvent,
-  makeAcpToolCallEvent,
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
-import {
-  applyAcpModelSelection,
-  currentAcpModelIdFromSessionSetup,
-  makeAcpGenericRuntime,
-  resolveAcpBaseModelId,
-  selectAcpPermissionOptionId,
-} from "../acp/AcpGenericSupport.ts";
 
-const PROVIDER = ProviderDriverKind.make("acp");
+const PROVIDER = ProviderDriverKind.make("hermes");
+
+function selectPermissionOptionId(
+  request: EffectAcpSchema.RequestPermissionRequest,
+  decision: Exclude<ProviderApprovalDecision, "cancel">,
+): string | undefined {
+  const preferred =
+    decision === "acceptForSession"
+      ? "allow_session"
+      : decision === "accept"
+        ? "allow_once"
+        : "deny";
+  const kind =
+    decision === "acceptForSession"
+      ? "allow_always"
+      : decision === "accept"
+        ? "allow_once"
+        : "reject_once";
+  return (
+    request.options.find((option) => option.optionId === preferred) ??
+    request.options.find((option) => option.kind === kind)
+  )?.optionId;
+}
 
 interface PendingApproval {
   readonly decision: Deferred.Deferred<ProviderApprovalDecision>;
@@ -69,15 +78,13 @@ interface PendingUserInput {
   readonly resolution: Deferred.Deferred<PendingUserInputResolution>;
 }
 
-interface AcpSessionContext {
-  readonly scope: Scope.Closeable;
-  readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
+interface HermesSessionContext {
+  readonly sessionId: string;
   session: ProviderSession;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly promptsInFlight: Map<TurnId, number>;
   activeTurnId: TurnId | undefined;
-  currentModelId: string | undefined;
   stopped: boolean;
 }
 
@@ -100,19 +107,29 @@ function settleUserInputs(
 }
 
 // ponytail: minimal ACP adapter following GrokAdapter's runtime pattern
-export function makeAcpAdapter(
-  acpSettings: AcpSettings,
+export function makeHermesAdapter(
+  runtime: HermesAcpRuntime,
   options: {
-    readonly environment?: NodeJS.ProcessEnv;
     readonly instanceId: ProviderInstanceId;
+    readonly model: string;
+    readonly skills?: ReadonlyArray<string>;
   },
 ) {
   return Effect.gen(function* () {
     const crypto = yield* Crypto.Crypto;
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const sessions = new Map<ThreadId, AcpSessionContext>();
+    const sessions = new Map<ThreadId, HermesSessionContext>();
+    const sessionsById = new Map<string, HermesSessionContext>();
     const threadLocksRef = yield* SynchronizedRef.make(new Map<string, Semaphore.Semaphore>());
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const skills = new Set(options.skills ?? []);
+
+    const preparePrompt = (input: string): string => {
+      const selected = [...input.matchAll(/\$([A-Za-z0-9][A-Za-z0-9._:-]*)/gu)]
+        .map((match) => match[1]!)
+        .filter((name) => skills.has(name));
+      if (selected.length === 0) return input;
+      return `Before handling the request, call skill_view for each selected Hermes skill (${[...new Set(selected)].join(", ")}) and follow the returned instructions.\n\n${input}`;
+    };
 
     const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
     const randomUUIDv4 = crypto.randomUUIDv4.pipe(
@@ -155,7 +172,7 @@ export function makeAcpAdapter(
 
     const requireSession = (
       threadId: ThreadId,
-    ): Effect.Effect<AcpSessionContext, ProviderAdapterSessionNotFoundError> => {
+    ): Effect.Effect<HermesSessionContext, ProviderAdapterSessionNotFoundError> => {
       const ctx = sessions.get(threadId);
       if (!ctx || ctx.stopped) {
         return Effect.fail(
@@ -165,23 +182,23 @@ export function makeAcpAdapter(
       return Effect.succeed(ctx);
     };
 
-    const stopInternal = (ctx: AcpSessionContext) =>
+    const stopInternal = (ctx: HermesSessionContext) =>
       Effect.gen(function* () {
         if (ctx.stopped) return;
         ctx.stopped = true;
         yield* settleApprovals(ctx.pendingApprovals);
         yield* settleUserInputs(ctx.pendingUserInputs);
-        yield* Scope.close(ctx.scope, Exit.void).pipe(Effect.ignore);
         sessions.delete(ctx.session.threadId);
+        sessionsById.delete(ctx.sessionId);
       });
 
     // Build notification handler for non-permission session updates
-    const mkNotify =
-      (threadId: ThreadId) =>
+    yield* runtime.handleSessionUpdate(
       (notification: EffectAcpSchema.SessionNotification): Effect.Effect<void> =>
         Effect.gen(function* () {
-          const ctx = sessions.get(threadId);
+          const ctx = sessionsById.get(notification.sessionId);
           if (!ctx || ctx.stopped) return;
+          const threadId = ctx.session.threadId;
           const update = notification.update;
           const turnId = ctx.activeTurnId;
 
@@ -206,7 +223,59 @@ export function makeAcpAdapter(
             // ponytail: tool_call events come through the ACP session; skip for now
             return;
           }
-        }).pipe(Effect.orDie);
+        }).pipe(Effect.orDie),
+    );
+
+    yield* runtime.handleRequestPermission((params) => {
+      const ctx = sessionsById.get(params.sessionId);
+      if (!ctx || ctx.stopped) {
+        return Effect.succeed({ outcome: { outcome: "cancelled" as const } });
+      }
+      return Effect.gen(function* () {
+        const permissionRequest = parsePermissionRequest(params);
+        const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
+        const runtimeRequestId = RuntimeRequestId.make(requestId);
+        const decision = yield* Deferred.make<ProviderApprovalDecision>();
+        const turnId = ctx.activeTurnId;
+        ctx.pendingApprovals.set(requestId, { decision });
+
+        yield* publish(
+          makeAcpRequestOpenedEvent({
+            stamp: yield* makeStamp(),
+            provider: PROVIDER,
+            threadId: ctx.session.threadId,
+            turnId,
+            requestId: runtimeRequestId,
+            permissionRequest: permissionRequest ?? params,
+            detail: permissionRequest?.detail ?? "Permission requested",
+            args: params,
+            source: "acp.jsonrpc",
+            method: "session/request_permission",
+            rawPayload: params,
+          }),
+        );
+
+        const resolved = yield* Deferred.await(decision);
+        ctx.pendingApprovals.delete(requestId);
+        yield* publish(
+          makeAcpRequestResolvedEvent({
+            stamp: yield* makeStamp(),
+            provider: PROVIDER,
+            threadId: ctx.session.threadId,
+            turnId,
+            requestId: runtimeRequestId,
+            permissionRequest: permissionRequest ?? params,
+            decision: resolved,
+          }),
+        );
+
+        const optionId =
+          resolved === "cancel" ? undefined : selectPermissionOptionId(params, resolved);
+        return !optionId
+          ? { outcome: { outcome: "cancelled" as const } }
+          : { outcome: { outcome: "selected" as const, optionId } };
+      }).pipe(Effect.catchCause(() => Effect.die("Hermes permission handler failed")));
+    });
 
     // ── startSession ──
     const startSession = (
@@ -231,90 +300,32 @@ export function makeAcpAdapter(
 
           const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
           const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
-          const sessionScope = yield* Scope.make("sequential");
-          let scopeTransferred = false;
-          yield* Effect.addFinalizer(() =>
-            scopeTransferred ? Effect.void : Scope.close(sessionScope, Exit.void),
-          );
-
           const cwd = input.cwd ?? process.cwd();
-
-          // Build runtime
-          const acp = yield* makeAcpGenericRuntime({
-            acpSettings,
-            environment: options.environment ?? process.env,
-            childProcessSpawner: spawner,
-            cwd,
-            clientInfo: { name: "t3-code-acp", version: "0.0.0" },
-          }).pipe(
-            Effect.provideService(Crypto.Crypto, crypto),
-            Effect.provideService(Scope.Scope, sessionScope),
-            Effect.mapError(
-              (cause) =>
-                new ProviderAdapterProcessError({
-                  provider: PROVIDER,
-                  threadId,
-                  detail: cause.message ?? "ACP runtime creation failed.",
-                  cause,
-                }),
-            ),
-          );
-
-          // Register permission handler BEFORE start
-          yield* acp.handleRequestPermission((params: EffectAcpSchema.RequestPermissionRequest) =>
-            Effect.gen(function* () {
-              const permissionRequest = parsePermissionRequest(params);
-              const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
-              const runtimeRequestId = RuntimeRequestId.make(requestId);
-              const decision = yield* Deferred.make<ProviderApprovalDecision>();
-              const turnId = sessions.get(threadId)?.activeTurnId;
-              pendingApprovals.set(requestId, { decision });
-
-              yield* publish(
-                makeAcpRequestOpenedEvent({
-                  stamp: yield* makeStamp(),
-                  provider: PROVIDER,
-                  threadId,
-                  turnId,
-                  requestId: runtimeRequestId,
-                  permissionRequest: permissionRequest ?? params,
-                  detail: permissionRequest?.detail ?? "Permission requested",
-                  args: params,
-                  source: "acp.jsonrpc",
-                  method: "session/request_permission",
-                  rawPayload: params,
-                }),
-              );
-
-              const resolved = yield* Deferred.await(decision);
-              pendingApprovals.delete(requestId);
-
-              yield* publish(
-                makeAcpRequestResolvedEvent({
-                  stamp: yield* makeStamp(),
-                  provider: PROVIDER,
-                  threadId,
-                  turnId,
-                  requestId: runtimeRequestId,
-                  permissionRequest: permissionRequest ?? params,
-                  decision: resolved,
-                }),
-              );
-
-              if (resolved === "cancel") {
-                return { outcome: { outcome: "cancelled" } as const };
-              }
-              const optionId = selectAcpPermissionOptionId(params, resolved) ?? "";
-              if (!optionId) return { outcome: { outcome: "cancelled" } as const };
-              return {
-                outcome: { outcome: "selected" as const, optionId },
-              };
-            }).pipe(Effect.catchCause(() => Effect.die("ACP permission handler failed"))),
-          );
-
-          // Start the session
-          const started = yield* acp
-            .start()
+          const resumeSessionId =
+            input.resumeCursor &&
+            typeof input.resumeCursor === "object" &&
+            "sessionId" in input.resumeCursor &&
+            typeof input.resumeCursor.sessionId === "string"
+              ? input.resumeCursor.sessionId
+              : undefined;
+          const mcpSession = McpProviderSession.readMcpProviderSession(threadId);
+          const started = yield* runtime
+            .createSession({
+              cwd,
+              ...(resumeSessionId ? { resumeSessionId } : {}),
+              ...(mcpSession
+                ? {
+                    mcpServers: [
+                      {
+                        type: "http" as const,
+                        name: "t3-code",
+                        url: mcpSession.endpoint,
+                        headers: [{ name: "Authorization", value: mcpSession.authorizationHeader }],
+                      },
+                    ],
+                  }
+                : {}),
+            })
             .pipe(
               Effect.mapError((error) =>
                 mapAcpToAdapterError(PROVIDER, threadId, "session/start", error),
@@ -328,33 +339,27 @@ export function makeAcpAdapter(
             status: "ready",
             runtimeMode: input.runtimeMode,
             cwd,
-            model: input.modelSelection?.model,
+            model: options.model,
             activeTurnId: undefined,
             resumeCursor: { sessionId: started.sessionId },
             createdAt: yield* nowIso,
             updatedAt: yield* nowIso,
           };
 
-          const ctx: AcpSessionContext = {
-            scope: sessionScope,
-            acp,
+          const ctx: HermesSessionContext = {
+            sessionId: started.sessionId,
             session,
             pendingApprovals,
             pendingUserInputs,
             promptsInFlight: new Map(),
             activeTurnId: undefined,
-            currentModelId: currentAcpModelIdFromSessionSetup(started.sessionSetupResult),
             stopped: false,
           };
-
-          // Register notification handler AFTER start
-          yield* acp.handleSessionUpdate(mkNotify(threadId));
-
-          scopeTransferred = true;
           sessions.set(threadId, ctx);
+          sessionsById.set(started.sessionId, ctx);
 
           return session;
-        }).pipe(Effect.scoped),
+        }),
       );
 
     // ── sendTurn ──
@@ -375,21 +380,6 @@ export function makeAcpAdapter(
                 : TurnId.make(yield* randomUUIDv4);
             const isNewTurn = activePromptCount === 0;
 
-            if (input.modelSelection && isNewTurn) {
-              ctx.currentModelId = yield* applyAcpModelSelection({
-                runtime: ctx.acp,
-                currentModelId: ctx.currentModelId,
-                requestedModelId: resolveAcpBaseModelId(input.modelSelection.model),
-                mapError: (cause) =>
-                  new ProviderAdapterRequestError({
-                    provider: PROVIDER,
-                    method: "session/set_model",
-                    detail: "Failed to set model.",
-                    cause,
-                  }),
-              });
-            }
-
             ctx.promptsInFlight.set(turnId, activePromptCount + 1);
             ctx.activeTurnId = turnId;
             ctx.session = {
@@ -397,7 +387,6 @@ export function makeAcpAdapter(
               status: "running",
               activeTurnId: turnId,
               updatedAt: yield* nowIso,
-              ...(ctx.currentModelId ? { model: resolveAcpBaseModelId(ctx.currentModelId) } : {}),
             };
 
             if (isNewTurn) {
@@ -411,12 +400,14 @@ export function makeAcpAdapter(
               });
             }
 
-            return { acp: ctx.acp, turnId };
+            return { sessionId: ctx.sessionId, turnId };
           }),
         );
 
-        const promptExit = yield* prepared.acp
-          .prompt({ prompt: [{ type: "text", text: input.input ?? "" }] })
+        const promptExit = yield* runtime
+          .prompt(prepared.sessionId, {
+            prompt: [{ type: "text", text: preparePrompt(input.input ?? "") }],
+          })
           .pipe(
             Effect.mapError((error) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
@@ -452,12 +443,15 @@ export function makeAcpAdapter(
               threadId: input.threadId,
               turnId: prepared.turnId,
               payload: Exit.isFailure(promptExit)
-                ? { state: "failed", errorMessage: "ACP prompt failed." }
+                ? { state: "failed", errorMessage: "Hermes prompt failed." }
                 : {
                     state: promptExit.value.stopReason === "cancelled" ? "cancelled" : "completed",
                     stopReason: promptExit.value.stopReason,
                   },
             });
+            if (Exit.isFailure(promptExit)) {
+              yield* stopInternal(ctx);
+            }
           }),
         );
 
@@ -507,7 +501,7 @@ export function makeAcpAdapter(
             return ctx;
           }),
         );
-        yield* prepared.acp.cancel.pipe(
+        yield* runtime.cancel(prepared.sessionId).pipe(
           Effect.mapError((error) =>
             mapAcpToAdapterError(PROVIDER, threadId, "session/cancel", error),
           ),
@@ -617,7 +611,7 @@ export function makeAcpAdapter(
         new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "rollbackThread",
-          detail: "ACP sessions do not support rollback.",
+          detail: "Hermes sessions do not support rollback.",
         }),
       );
 
@@ -632,7 +626,7 @@ export function makeAcpAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session" as const },
+      capabilities: { sessionModelSwitch: "unsupported" as const },
       startSession,
       sendTurn,
       interruptTurn,

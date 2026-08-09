@@ -36,22 +36,6 @@ const CUSTOM_MODEL_PLACEHOLDER_BY_KIND: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("cursor")]: "claude-sonnet-4-6",
   [ProviderDriverKind.make("opencode")]: "openai/gpt-5",
 };
-const ACP_DRIVER_KIND = ProviderDriverKind.make("acp");
-
-export function filterProviderModelsForDisplay(input: {
-  readonly driverKind: ProviderDriverKind | null;
-  readonly models: ReadonlyArray<ServerProviderModel>;
-  readonly query: string;
-}): ReadonlyArray<ServerProviderModel> {
-  const query = input.query.trim().toLocaleLowerCase();
-  if (input.driverKind !== ACP_DRIVER_KIND || query.length === 0) return input.models;
-  return input.models.filter(
-    (model) =>
-      model.name.toLocaleLowerCase().includes(query) ||
-      model.slug.toLocaleLowerCase().includes(query),
-  );
-}
-
 interface ProviderModelsSectionProps {
   /** Identifier used to namespace input ids within the DOM. */
   readonly instanceId: ProviderInstanceId;
@@ -124,10 +108,7 @@ export function ProviderModelsSection({
       modelOrder,
     });
   }, [favoriteModelSet, modelOrder, models]);
-  const visibleModels = useMemo(
-    () => filterProviderModelsForDisplay({ driverKind, models: orderedModels, query: input }),
-    [driverKind, input, orderedModels],
-  );
+  const visibleModels = orderedModels;
   const orderedModelIndex = useMemo(
     () => new Map(orderedModels.map((model, index) => [model, index])),
     [orderedModels],
@@ -421,11 +402,7 @@ export function ProviderModelsSection({
             handleAdd();
           }}
           placeholder={
-            driverKind === ACP_DRIVER_KIND
-              ? "Filter models or add a custom model"
-              : driverKind
-                ? CUSTOM_MODEL_PLACEHOLDER_BY_KIND[driverKind]
-                : "model-slug"
+            (driverKind ? CUSTOM_MODEL_PLACEHOLDER_BY_KIND[driverKind] : undefined) ?? "model-slug"
           }
           spellCheck={false}
         />

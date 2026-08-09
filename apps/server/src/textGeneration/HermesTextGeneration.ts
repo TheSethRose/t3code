@@ -1,12 +1,10 @@
-import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as EffectAcpErrors from "effect-acp/errors";
 
-import { type AcpSettings, type ModelSelection } from "@t3tools/contracts";
+import type { ModelSelection } from "@t3tools/contracts";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@t3tools/shared/git";
 import { extractJsonObject } from "@t3tools/shared/schemaJson";
 
@@ -23,31 +21,22 @@ import {
   sanitizePrTitle,
   sanitizeThreadTitle,
 } from "./TextGenerationUtils.ts";
-import {
-  applyAcpModelSelection,
-  currentAcpModelIdFromSessionSetup,
-  makeAcpGenericRuntime,
-  resolveAcpBaseModelId,
-} from "../provider/acp/AcpGenericSupport.ts";
+import type { HermesAcpRuntime } from "../provider/acp/HermesAcpRuntime.ts";
 
-const ACP_TIMEOUT_MS = 180_000;
+const HERMES_TIMEOUT_MS = 180_000;
 
 const isTextGenerationError = Schema.is(TextGenerationError);
 
-// ponytail: same structured-output pattern as GrokTextGeneration, generic ACP
-export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function* (
-  acpSettings: AcpSettings,
-  environment: NodeJS.ProcessEnv = process.env,
+// ponytail: same structured-output pattern as GrokTextGeneration on the shared Hermes runtime
+export const makeHermesTextGeneration = Effect.fn("makeHermesTextGeneration")(function* (
+  runtime: HermesAcpRuntime,
 ) {
-  const crypto = yield* Crypto.Crypto;
-  const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-
-  const runAcpJson = <S extends Schema.Top>({
+  const runHermesJson = <S extends Schema.Top>({
     operation,
     cwd,
     prompt,
     outputSchemaJson,
-    modelSelection,
+    modelSelection: _modelSelection,
   }: {
     operation:
       | "generateCommitMessage"
@@ -60,51 +49,35 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
     modelSelection: ModelSelection;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
-      const resolvedModel = resolveAcpBaseModelId(modelSelection.model);
       const outputRef = yield* Ref.make("");
-      const runtime = yield* makeAcpGenericRuntime({
-        acpSettings,
-        environment,
-        childProcessSpawner: commandSpawner,
-        cwd,
-        clientInfo: { name: "t3-code-git-text", version: "0.0.0" },
-      }).pipe(Effect.provideService(Crypto.Crypto, crypto));
-
-      yield* runtime.handleSessionUpdate((notification) => {
-        const update = notification.update;
-        if (update.sessionUpdate !== "agent_message_chunk") {
-          return Effect.void;
-        }
-        const content = update.content;
-        if (content.type !== "text") {
-          return Effect.void;
-        }
-        return Ref.update(outputRef, (current) => current + content.text);
-      });
+      const sessionIdRef = yield* Ref.make<string | undefined>(undefined);
+      const removeHandler = yield* runtime.handleSessionUpdate((notification) =>
+        Effect.gen(function* () {
+          if (notification.sessionId !== (yield* Ref.get(sessionIdRef))) return;
+          const update = notification.update;
+          if (update.sessionUpdate !== "agent_message_chunk" || update.content.type !== "text") {
+            return;
+          }
+          const text = update.content.text;
+          yield* Ref.update(outputRef, (current) => current + text);
+        }),
+      );
 
       const promptResult = yield* Effect.gen(function* () {
-        const started = yield* runtime.start();
-        yield* applyAcpModelSelection({
-          runtime,
-          currentModelId: currentAcpModelIdFromSessionSetup(started.sessionSetupResult),
-          requestedModelId: resolvedModel,
-          mapError: (cause) =>
-            new TextGenerationError({
-              operation,
-              detail: "Failed to set ACP model for text generation.",
-              cause,
-            }),
-        });
-
-        return yield* runtime.prompt({
+        const started = yield* runtime.createSession({ cwd });
+        yield* Ref.set(sessionIdRef, started.sessionId);
+        return yield* runtime.prompt(started.sessionId, {
           prompt: [{ type: "text", text: prompt }],
         });
       }).pipe(
-        Effect.timeoutOption(ACP_TIMEOUT_MS),
+        Effect.ensuring(Effect.sync(removeHandler)),
+        Effect.timeoutOption(HERMES_TIMEOUT_MS),
         Effect.flatMap(
           Option.match({
             onNone: () =>
-              Effect.fail(new TextGenerationError({ operation, detail: "ACP request timed out." })),
+              Effect.fail(
+                new TextGenerationError({ operation, detail: "Hermes request timed out." }),
+              ),
             onSome: (value) => Effect.succeed(value),
           }),
         ),
@@ -113,7 +86,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
             ? cause
             : new TextGenerationError({
                 operation,
-                detail: "ACP request failed.",
+                detail: "Hermes request failed.",
                 cause,
               }),
         ),
@@ -125,8 +98,8 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
           operation,
           detail:
             promptResult.stopReason === "cancelled"
-              ? "ACP request was cancelled."
-              : "ACP agent returned empty output.",
+              ? "Hermes request was cancelled."
+              : "Hermes returned empty output.",
         });
       }
 
@@ -137,7 +110,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
             Effect.fail(
               new TextGenerationError({
                 operation,
-                detail: "ACP agent returned invalid structured output.",
+                detail: "Hermes returned invalid structured output.",
                 cause,
               }),
             ),
@@ -149,7 +122,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
           ? cause
           : new TextGenerationError({
               operation,
-              detail: "ACP text generation failed.",
+              detail: "Hermes text generation failed.",
               cause,
             }),
       ),
@@ -157,7 +130,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
     );
 
   const generateCommitMessage: TextGeneration.TextGeneration["Service"]["generateCommitMessage"] =
-    Effect.fn("AcpTextGeneration.generateCommitMessage")(function* (input) {
+    Effect.fn("HermesTextGeneration.generateCommitMessage")(function* (input) {
       const { prompt, outputSchema } = buildCommitMessagePrompt({
         branch: input.branch,
         stagedSummary: input.stagedSummary,
@@ -166,7 +139,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
         policy: input.policy,
       });
 
-      const generated = yield* runAcpJson({
+      const generated = yield* runHermesJson({
         operation: "generateCommitMessage",
         cwd: input.cwd,
         prompt,
@@ -184,7 +157,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
     });
 
   const generatePrContent: TextGeneration.TextGeneration["Service"]["generatePrContent"] =
-    Effect.fn("AcpTextGeneration.generatePrContent")(function* (input) {
+    Effect.fn("HermesTextGeneration.generatePrContent")(function* (input) {
       const { prompt, outputSchema } = buildPrContentPrompt({
         baseBranch: input.baseBranch,
         headBranch: input.headBranch,
@@ -195,7 +168,7 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
         changeRequestTemplate: input.changeRequestTemplate,
       });
 
-      const generated = yield* runAcpJson({
+      const generated = yield* runHermesJson({
         operation: "generatePrContent",
         cwd: input.cwd,
         prompt,
@@ -210,13 +183,13 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
     });
 
   const generateBranchName: TextGeneration.TextGeneration["Service"]["generateBranchName"] =
-    Effect.fn("AcpTextGeneration.generateBranchName")(function* (input) {
+    Effect.fn("HermesTextGeneration.generateBranchName")(function* (input) {
       const { prompt, outputSchema } = buildBranchNamePrompt({
         message: input.message,
         attachments: input.attachments,
       });
 
-      const generated = yield* runAcpJson({
+      const generated = yield* runHermesJson({
         operation: "generateBranchName",
         cwd: input.cwd,
         prompt,
@@ -230,14 +203,14 @@ export const makeAcpTextGeneration = Effect.fn("makeAcpTextGeneration")(function
     });
 
   const generateThreadTitle: TextGeneration.TextGeneration["Service"]["generateThreadTitle"] =
-    Effect.fn("AcpTextGeneration.generateThreadTitle")(function* (input) {
+    Effect.fn("HermesTextGeneration.generateThreadTitle")(function* (input) {
       const { prompt, outputSchema } = buildThreadTitlePrompt({
         message: input.message,
         previousTitle: input.previousTitle,
         attachments: input.attachments,
       });
 
-      const generated = yield* runAcpJson({
+      const generated = yield* runHermesJson({
         operation: "generateThreadTitle",
         cwd: input.cwd,
         prompt,

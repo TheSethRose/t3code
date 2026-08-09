@@ -491,7 +491,7 @@ export const PiSettings = makeProviderSettingsSchema(
 );
 export type PiSettings = typeof PiSettings.Type;
 
-export const AcpSettings = makeProviderSettingsSchema(
+export const HermesSettings = makeProviderSettingsSchema(
   {
     enabled: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
@@ -500,15 +500,23 @@ export const AcpSettings = makeProviderSettingsSchema(
     binaryPath: makeBinaryPathSetting("hermes").pipe(
       Schema.annotateKey({
         title: "Binary path",
-        description: "Path to the ACP agent binary.",
+        description: "Path to the Hermes Agent binary.",
         providerSettingsForm: { placeholder: "hermes", clearWhenEmpty: "omit" },
+      }),
+    ),
+    profile: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("default")),
+      Schema.annotateKey({
+        title: "Hermes profile",
+        description: "Hermes agent profile to use. The profile owns its model, skills, and memory.",
+        providerSettingsForm: { placeholder: "default", clearWhenEmpty: "omit" },
       }),
     ),
     launchArgs: TrimmedString.pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Launch arguments",
-        description: "Additional CLI arguments passed on session start.",
+        description: "Additional arguments passed after the profile selector.",
         providerSettingsForm: { placeholder: "acp", clearWhenEmpty: "omit" },
       }),
     ),
@@ -516,20 +524,16 @@ export const AcpSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Auth method ID",
-        description: "ACP auth method. Leave blank to auto-select a safe agent-owned method.",
-        providerSettingsForm: { placeholder: "e.g. opencode-go", clearWhenEmpty: "omit" },
+        description: "Leave blank to use Hermes' advertised agent-owned authentication method.",
+        providerSettingsForm: { clearWhenEmpty: "omit" },
       }),
-    ),
-    customModels: Schema.Array(Schema.String).pipe(
-      Schema.withDecodingDefault(Effect.succeed([])),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
   },
   {
-    order: ["binaryPath", "launchArgs", "authMethodId"],
+    order: ["profile", "binaryPath", "launchArgs", "authMethodId"],
   },
 );
-export type AcpSettings = typeof AcpSettings.Type;
+export type HermesSettings = typeof HermesSettings.Type;
 
 export const ObservabilitySettings = Schema.Struct({
   otlpTracesUrl: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
@@ -661,7 +665,7 @@ export const ServerSettings = Schema.Struct({
     cursor: CursorSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     grok: GrokSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
     opencode: OpenCodeSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
-    acp: AcpSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+    hermes: HermesSettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   }).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   // New driver-agnostic instance map. Keyed by `ProviderInstanceId`; values
   // are `ProviderInstanceConfig` envelopes. The driver-specific config blob
@@ -765,12 +769,12 @@ const OpenCodeSettingsPatch = Schema.Struct({
   customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
-const AcpSettingsPatch = Schema.Struct({
+const HermesSettingsPatch = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   binaryPath: Schema.optionalKey(TrimmedString),
+  profile: Schema.optionalKey(TrimmedString),
   launchArgs: Schema.optionalKey(TrimmedString),
   authMethodId: Schema.optionalKey(TrimmedString),
-  customModels: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
 export const ServerSettingsPatch = Schema.Struct({
@@ -813,7 +817,7 @@ export const ServerSettingsPatch = Schema.Struct({
       cursor: Schema.optionalKey(CursorSettingsPatch),
       grok: Schema.optionalKey(GrokSettingsPatch),
       opencode: Schema.optionalKey(OpenCodeSettingsPatch),
-      acp: Schema.optionalKey(AcpSettingsPatch),
+      hermes: Schema.optionalKey(HermesSettingsPatch),
     }),
   ),
   // Whole-map replacement for the new instance config. Patching individual

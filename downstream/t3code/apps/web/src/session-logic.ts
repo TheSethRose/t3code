@@ -59,8 +59,8 @@ export const PROVIDER_OPTIONS: Array<{
     pickerSidebarBadge: "new",
   },
   {
-    value: ProviderDriverKind.make("acp"),
-    label: "ACP",
+    value: ProviderDriverKind.make("hermes"),
+    label: "Hermes",
     available: true,
     pickerSidebarBadge: "new",
   },

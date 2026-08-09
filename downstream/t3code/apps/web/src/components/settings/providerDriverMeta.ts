@@ -1,5 +1,5 @@
 import {
-  AcpSettings,
+  HermesSettings,
   ClaudeSettings,
   CodexSettings,
   CursorSettings,
@@ -10,7 +10,7 @@ import {
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
 import {
-  AcpAgentIcon,
+  HermesIcon,
   ClaudeAI,
   CursorIcon,
   GrokIcon,
@@ -86,11 +86,11 @@ export const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = 
     settingsSchema: PiSettings,
   },
   {
-    value: ProviderDriverKind.make("acp"),
-    label: "ACP",
-    icon: AcpAgentIcon,
+    value: ProviderDriverKind.make("hermes"),
+    label: "Hermes",
+    icon: HermesIcon,
     badgeLabel: "Downstream",
-    settingsSchema: AcpSettings,
+    settingsSchema: HermesSettings,
   },
 ];
 

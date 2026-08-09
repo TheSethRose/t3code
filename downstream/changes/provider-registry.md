@@ -2,7 +2,7 @@
 
 ## Why
 
-Pi and generic ACP are independent providers, but registering either one changes the same provider
+Pi and Hermes are independent providers, but registering either one changes the same provider
 settings contract, driver list, icons, labels, and provider pickers. This record owns those shared
 overlays so each full file has one downstream owner while both provider records remain removable.
 
