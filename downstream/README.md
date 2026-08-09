@@ -184,8 +184,9 @@ $t3-sync
 The skill owns the complete local pipeline: preserve unrelated work, fetch the exact
 `upstream/main` tip, create or resume `sync/upstream-<sha>`, reconcile every overlapping overlay,
 run deduplicated active-record and control-plane validation, recheck that upstream has not advanced,
-fast-forward local `main`, and restore the starting worktree. It pushes or opens a pull request only
-when explicitly requested.
+fast-forward local `main`, restore the starting worktree, and push the validated combined history to
+`origin/main`. It never force-pushes or opens a pull request; request a local-only sync explicitly to
+skip publication.
 
 `downstream.ts roll`, `inspect`, `init`, and `verify` remain the deterministic source-sync primitives.
 Run them directly only when repairing or diagnosing a failed orchestration. Never use `init` to

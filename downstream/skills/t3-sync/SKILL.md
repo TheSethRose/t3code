@@ -1,19 +1,20 @@
 ---
 name: t3-sync
-description: Synchronize the maintained T3 Code fork to the exact current upstream/main commit, reconcile every intersecting downstream overlay, run focused validation once, and fast-forward local main. Use when the user invokes $t3-sync or asks to sync, merge, update, catch up, or reapply downstream changes. Never build a DMG; push only when explicitly requested.
+description: Synchronize the maintained T3 Code fork and its GitHub main branch to the exact current upstream/main commit, reconcile every intersecting downstream overlay, validate once, and push the combined downstream history. Use when the user invokes $t3-sync or asks to sync, merge, update, catch up, or reapply downstream changes. Never build a DMG, force-push, or open a pull request.
 ---
 
 # T3 Sync
 
-Finish with validated local `main` containing the latest fetched `upstream/main` plus every retained
-downstream behavior. Do not build a desktop artifact.
+Finish with validated local and `origin/main` containing the latest fetched `upstream/main` plus
+every retained downstream behavior. Do not build a desktop artifact.
 
 ## Authority
 
 Explicit invocation authorizes safety-stashing unrelated work, creating a sync branch, resolving
-files, committing reconciliation, fast-forwarding local `main`, and focused validation. It does not
-authorize a DMG build, push, pull request, release, upload, or installer execution unless explicitly
-requested.
+files, committing reconciliation, fast-forwarding local `main`, focused validation, and a normal
+push of that validated `main` to the configured fork origin. It does not authorize a force-push,
+pull request, DMG build, release, upload, or installer execution. Skip the push only when the user
+explicitly requests a local-only sync.
 
 Read `AGENTS.md`, `downstream/t3code/AGENTS.md`, `downstream/README.md`, and every active record under
 `downstream/changes/` before changing state.
@@ -60,11 +61,16 @@ inspect scope, and commit only the reviewed sync while preserving merge ancestry
 
 Fetch upstream again. If it advanced, repeat reconciliation and validation. Otherwise fast-forward
 local `main` from `sync/upstream-<sha>`, verify zero missing upstream commits, and rerun downstream
-verification. Push only when explicitly requested.
+verification.
 
 Restore the exact safety stash, verify the starting work returned, then drop only that stash. If
 restoration conflicts, keep it and report the recovery state.
 
-Report upstream and local `main` SHAs, zero-missing proof, intersections reviewed, retained or
-removed deviations, validation results, push status, and worktree restoration. Stop with recovery
-state intact when provenance, overlap, equivalence, validation, or restoration cannot be proven.
+Fetch `origin/main` immediately before publishing and require it to be an ancestor of local `main`.
+Push with `git push origin main:main`; never force. Fetch origin again, require
+`origin/main == local main`, and require `git rev-list --count origin/main..upstream/main` to be zero.
+Stop if the remote advanced independently or any remote proof fails.
+
+Report upstream, local `main`, and `origin/main` SHAs; both zero-missing proofs; intersections
+reviewed; retained or removed deviations; validation results; and worktree restoration. A local
+commit that was not pushed is not a completed sync unless the user requested local-only operation.

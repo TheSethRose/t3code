@@ -1,4 +1,4 @@
 interface:
   display_name: "T3 Sync"
-  short_description: "Sync exact upstream into downstream"
-  default_prompt: "Use $t3-sync to merge the latest upstream T3 Code into downstream main and reconcile active overlays."
+  short_description: "Sync exact upstream into the downstream fork"
+  default_prompt: "Use $t3-sync to merge exact upstream main, reconcile and validate downstream overlays, then push the combined main branch to the fork."
