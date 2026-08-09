@@ -13,8 +13,9 @@ downstream lifecycle.
 
 ## 1. Define the Change
 
-Start from downstream `main` on one short-lived `feat/*` or `fix/*` branch. Before implementation,
-write the change record with these sections:
+Start from one ready GitHub issue with `$t3-work`. It creates a short-lived `feat/*` or `fix/*`
+branch and adds the completed `downstream/changes/` record in the same commit series, using these
+sections:
 
 ```markdown
 # Change name
@@ -93,16 +94,16 @@ the actual provider runtime for installation, authentication, one completed turn
 interruption, continuation, and shutdown. A compile or mocked adapter test does not prove those
 installed states.
 
-Finish with `vp run build:desktop` when the integrated desktop/server/web pipeline is affected. Do
-not replace focused validation with repo-wide checks outside CI.
+Do not replace focused validation with repo-wide checks outside CI. Build an installable DMG only
+when the issue explicitly requires one.
 
 ## 5. Roll Forward
 
-During each upstream sync, invoke `$merge-t3code-downstream` to orchestrate the fetch, merge,
-reconciliation, validation, local `main` integration, and DMG build. The skill compares upstream
+During each upstream sync, invoke `$t3-sync` to orchestrate the fetch, merge,
+reconciliation, deduplicated validation, and local `main` integration. The skill compares upstream
 changes with every active record's files and affected surfaces, resolves against current upstream
-architecture, and updates the normal file, overlay counterpart, and record together. Follow
-[Compatibility](compatibility.md) for contracts, stored data, and mixed versions.
+architecture, and updates the normal file, overlay counterpart, and record together. It does not
+build a DMG. Follow [Compatibility](compatibility.md) for contracts, stored data, and mixed versions.
 
 If upstream changes the extension point, adapt the downstream change to it. Do not add a permanent
 wrapper around an obsolete upstream interface unless the change has an independent compatibility

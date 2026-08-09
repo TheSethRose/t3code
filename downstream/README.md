@@ -55,7 +55,9 @@ vp node downstream/tools/downstream.ts verify
 An upstream update merges the fetched `upstream/main` commit into downstream `main`; it never resets `main` to upstream. That is why `downstream/`, its tools, and downstream product changes remain available while the upstream tree advances. A raw upstream checkout must retrieve `downstream/` from the fork before it can run the initializer.
 
 Downstream-only maintenance code lives under `downstream/tools/`, and repo-owned maintenance skills
-live under `downstream/skills/`. Init installs each skill into `~/.agents/skills/`.
+live under `downstream/skills/`. Init replaces each installed copy under `~/.agents/skills/` and
+removes retired T3 skill names. GitHub issues hold new work; `downstream/changes/` holds only active,
+merged deviations.
 `downstream/t3code/` mirrors paths in the T3 Code tree that the initializer restores after review;
 its `AGENTS.md` is the one intentional special case because the initializer appends a pointer to it
 instead of replacing upstream's root instructions. Product code still runs from the normal
@@ -93,7 +95,7 @@ exclude the overlay tree.
 
 `init` restores already-reviewed overlays; it is not a conflict resolver. It refuses to overwrite a
 dirty destination that differs from its overlay. During an upstream sync, reconcile the normal file
-and overlay first with `$merge-t3code-downstream`, then run `init` and `verify`.
+and overlay first with `$t3-sync`, then run `init` and `verify`.
 
 ## Machine Setup
 
@@ -125,7 +127,7 @@ git config --local rerere.autoupdate false
 
 ## Adding a Downstream Change
 
-Follow the [Change Lifecycle](docs/feature-lifecycle.md). Start from downstream `main`, put
+Follow the [Change Lifecycle](docs/feature-lifecycle.md). Start ready work with `$t3-work`, put
 executable code and tests in their normal repository paths, and keep each concern in a coherent
 commit or short commit series. Add a record under `downstream/changes/`, using
 `downstream/changes/Bugs/<slug>.md` for bug fixes, with these sections:
@@ -155,23 +157,36 @@ new upstream version and update both the working file and its overlay copy; `ver
 drift, missing or duplicate change-record ownership, stale record entries, unsupported upstream-file
 deletions, and executable mirrored tests.
 
+## Working and Reviewing Changes
+
+Use the repository skills around GitHub's native issue and pull-request flow:
+
+```text
+$t3-work #<issue>
+$t3-review #<pull-request>
+$t3-close #<issue>
+```
+
+`$t3-work` implements one ready issue and opens a draft PR, `$t3-review` performs the separate
+read-only review, and `$t3-close` verifies the merged result before commenting and closing the issue.
+
 ## Syncing Upstream
 
 Invoke the repository skill:
 
 ```text
-$merge-t3code-downstream
+$t3-sync
 ```
 
 The skill owns the complete local pipeline: preserve unrelated work, fetch the exact
 `upstream/main` tip, create or resume `sync/upstream-<sha>`, reconcile every overlapping overlay,
-run all active-record and control-plane validation, build the DMG from the clean candidate, recheck
-that upstream has not advanced, fast-forward local `main`, and restore the starting worktree. It
-pushes or opens a pull request only when explicitly requested.
+run deduplicated active-record and control-plane validation, recheck that upstream has not advanced,
+fast-forward local `main`, and restore the starting worktree. It pushes or opens a pull request only
+when explicitly requested.
 
-`downstream.ts roll`, `init`, `verify`, and `build` remain the deterministic primitives used by the
-skill. Run them directly only when repairing or diagnosing a failed orchestration. Never use `init`
-to resolve a merge, and never squash the upstream merge ancestry.
+`downstream.ts roll`, `inspect`, `init`, and `verify` remain the deterministic source-sync primitives.
+Run them directly only when repairing or diagnosing a failed orchestration. Never use `init` to
+resolve a merge, and never squash the upstream merge ancestry.
 
 ## Building an Installable Artifact
 
@@ -179,7 +194,8 @@ Read [Release and Distribution](docs/release-and-distribution.md) before distrib
 the current command builds a local host-platform artifact but does not establish independent product
 identity, remote server distribution, signing, or an update channel.
 
-Build the current clean commit with a unique downstream version:
+When a build is explicitly required, run the existing exact-commit primitive from a clean accepted
+commit:
 
 ```bash
 vp node downstream/tools/downstream.ts build

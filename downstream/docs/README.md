@@ -20,9 +20,10 @@ source, then explain only the downstream policy or compatibility work layered on
 - [Provider Architecture](providers.md) maps the provider driver extension points and gives the
   downstream provider checklist.
 
-The operational commands for bootstrapping, syncing upstream, resolving conflicts, and building
-a local installer stay in [`downstream/README.md`](../README.md). Active fork-only behavior is listed
-in `downstream/changes/`; Git history is the archive after a change is removed.
+The operational commands for bootstrapping, syncing upstream, resolving conflicts, and building a
+local installer stay in [`downstream/README.md`](../README.md). GitHub issues hold new work;
+`downstream/changes/` lists completed, active fork-only behavior. Git history is the archive after
+removal.
 
 ## Documentation Rules
 

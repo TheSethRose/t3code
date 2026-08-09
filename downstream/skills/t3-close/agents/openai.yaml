@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Close"
+  short_description: "Verify and close a shipped issue"
+  default_prompt: "Use $t3-close to verify a merged downstream change and close its linked GitHub issue with evidence."

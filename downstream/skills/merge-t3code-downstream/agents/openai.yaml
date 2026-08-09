@@ -1,4 +1,0 @@
-interface:
-  display_name: "Merge T3 Code Downstream"
-  short_description: "Sync, reconcile, validate, and build the DMG"
-  default_prompt: "Use $merge-t3code-downstream to sync the latest upstream T3 Code, reapply downstream changes safely, validate the result, and rebuild the DMG."

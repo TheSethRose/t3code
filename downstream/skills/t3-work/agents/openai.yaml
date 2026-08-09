@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Work"
+  short_description: "Work a ready downstream GitHub issue"
+  default_prompt: "Use $t3-work to implement a ready downstream GitHub issue and open its draft pull request."

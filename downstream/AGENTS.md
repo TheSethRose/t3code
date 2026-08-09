@@ -27,7 +27,8 @@ policy.
 
 ## Active Changes
 
-Create `changes/<slug>.md` in the same commit series that introduces fork-only behavior. Keep the record short and include:
+Start new work from a ready GitHub issue with `$t3-work`. Create `changes/<slug>.md` in the same
+commit series that introduces verified fork-only behavior. Keep each record short and include:
 
 - why the deviation exists;
 - affected contracts, providers, clients, runtime paths, or source areas;
@@ -41,9 +42,9 @@ Update a record when its behavior or validation changes. Delete it with the redu
 
 - `origin/main` is the tested downstream product branch.
 - The fetched `upstream/main` commit is the integration input; published nightly tags remain immutable build-version metadata.
-- Invoke `$merge-t3code-downstream` for the complete local sync, reconciliation, validation, `main`
-  integration, and DMG build. Use `downstream.ts` subcommands directly only to repair or diagnose the
-  orchestrated workflow.
+- Invoke `$t3-sync` for the complete local source sync, reconciliation, validation, and `main`
+  integration. It does not build a DMG. Use `downstream.ts` subcommands directly only to repair or
+  diagnose the workflow.
 - Upstream syncs happen on temporary `sync/upstream-<sha>` branches and merge into `main` only after validation.
 - Fork-only features and fixes use short-lived topic branches and remain independently removable.
 - Each fork-only feature follows `docs/feature-lifecycle.md` and records every applicable client,
@@ -59,7 +60,8 @@ Update a record when its behavior or validation changes. Delete it with the redu
 - Keep `downstream/t3code/AGENTS.md` authoritative; init installs `downstream/skills/` into
   `~/.agents/skills/`, applies reviewed overlays, and leaves root `AGENTS.md` ending with its single
   downstream pointer.
-- Use `vp node downstream/tools/downstream.ts build` for installable artifacts; do not persist release-version edits in the working branch.
+- Use `vp node downstream/tools/downstream.ts build` only when an installable artifact is explicitly
+  requested; do not persist release-version edits in the working branch.
 - Keep `downstream/t3code/` limited to downstream-owned files; do not copy the whole upstream tree or add a patch engine, permanent mirror branch, or automatic merge workflow unless the current tooling has demonstrably stopped scaling.
 
 ## Completion Gate

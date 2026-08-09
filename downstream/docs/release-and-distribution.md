@@ -10,14 +10,13 @@ local artifact workflow and must not inherit upstream publication destinations b
 From a clean accepted commit, run:
 
 ```bash
-vp node downstream/tools/downstream.ts verify
-vp run build:desktop
 vp node downstream/tools/downstream.ts build
 ```
 
-The final command creates a detached temporary worktree, aligns release package versions to a unique
-downstream version, installs pinned dependencies, invokes the existing host artifact builder, and
-copies output to `release/downstream/`. It removes `T3CODE_DESKTOP_UPDATE_REPOSITORY` and
+The command creates a detached
+temporary worktree, aligns release package versions to a unique downstream version, installs pinned
+dependencies, invokes the existing host artifact builder once, and copies output to
+`release/downstream/`. It removes `T3CODE_DESKTOP_UPDATE_REPOSITORY` and
 `GITHUB_REPOSITORY` from the artifact build environment, so the resulting installer does not receive
 an official or incomplete fork updater feed.
 

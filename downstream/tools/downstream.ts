@@ -12,6 +12,11 @@ const ROOT_AGENTS_START = "<!-- downstream-agents:start -->";
 const ROOT_AGENTS_END = "<!-- downstream-agents:end -->";
 const ROOT_AGENTS_POINTER =
   "This is a maintained downstream build. Before doing any work, read and follow `downstream/t3code/AGENTS.md`.";
+const LEGACY_DOWNSTREAM_SKILLS = [
+  "build-t3code-downstream",
+  "merge-t3code-downstream",
+  "reconcile-t3code-downstream-records",
+] as const;
 
 export class DownstreamCommandError extends Error {}
 
@@ -44,6 +49,19 @@ export interface DownstreamRollResult {
   readonly upstreamCommit: string;
   readonly branch: string;
   readonly changeRecords: ReadonlyArray<string>;
+}
+
+export interface DownstreamInspection {
+  readonly target: "upstream/main";
+  readonly upstreamCommit: string;
+  readonly priorRef: string;
+  readonly previousUpstream: string;
+  readonly changedPaths: ReadonlyArray<string>;
+  readonly intersections: ReadonlyArray<{
+    readonly path: string;
+    readonly records: ReadonlyArray<string>;
+    readonly overlayMatches: boolean;
+  }>;
 }
 
 interface InitDownstreamOptions {
@@ -300,6 +318,14 @@ function installDownstreamSkills(rootDir: string, agentsSkillsDir: string): bool
   }
 
   let changed = false;
+  const sourceNames = new Set(entries.map((entry) => entry.name));
+  for (const name of LEGACY_DOWNSTREAM_SKILLS) {
+    const destinationPath = NodePath.join(agentsSkillsDir, name);
+    if (sourceNames.has(name) || !NodeFS.existsSync(destinationPath)) continue;
+    NodeFS.rmSync(destinationPath, { recursive: true, force: true });
+    changed = true;
+  }
+
   for (const entry of entries) {
     const sourcePath = NodePath.join(sourceRoot, entry.name);
     const destinationPath = NodePath.join(agentsSkillsDir, entry.name);
@@ -440,6 +466,60 @@ export function verifyDownstream(rootDir: string): void {
       );
     }
   }
+}
+
+export function inspectDownstream(rootDir: string): DownstreamInspection {
+  const target = "upstream/main" as const;
+  const upstreamCommit = git(rootDir, ["rev-parse", target]);
+  const mergeHead = gitSucceeds(rootDir, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"]);
+  const secondParent = gitSucceeds(rootDir, ["rev-parse", "--verify", "--quiet", "HEAD^2"])
+    ? git(rootDir, ["rev-parse", "HEAD^2"])
+    : undefined;
+  const priorRef = mergeHead ? "HEAD" : secondParent === upstreamCommit ? "HEAD^1" : "HEAD";
+  const previousUpstream = git(rootDir, ["merge-base", priorRef, upstreamCommit]);
+  const changedPaths = git(rootDir, [
+    "diff",
+    "--name-only",
+    `${previousUpstream}..${upstreamCommit}`,
+  ])
+    .split("\n")
+    .filter(Boolean)
+    .toSorted();
+  const owners = new Map<string, Array<string>>();
+
+  for (const recordPath of activeChangeRecords(rootDir)) {
+    for (const relativePath of changeRecordOverlayFiles(rootDir, recordPath)) {
+      const records = owners.get(relativePath) ?? [];
+      records.push(recordPath);
+      owners.set(relativePath, records);
+    }
+  }
+
+  const overlayRoot = NodePath.join(rootDir, "downstream", "t3code");
+  const intersections = overlayFiles(rootDir)
+    .filter((relativePath) => relativePath !== "AGENTS.md")
+    .map(canonicalOverlayPath)
+    .filter((relativePath) => changedPaths.includes(relativePath))
+    .map((relativePath) => {
+      const normalPath = NodePath.join(rootDir, relativePath);
+      const overlayPath = NodePath.join(overlayRoot, relativePath);
+      return {
+        path: relativePath,
+        records: owners.get(relativePath)?.toSorted() ?? [],
+        overlayMatches:
+          NodeFS.existsSync(normalPath) &&
+          NodeFS.readFileSync(normalPath).equals(NodeFS.readFileSync(overlayPath)),
+      };
+    });
+
+  return {
+    target,
+    upstreamCommit,
+    priorRef,
+    previousUpstream,
+    changedPaths,
+    intersections,
+  };
 }
 
 export function parseNightlyTag(tag: string): ParsedNightlyTag {
@@ -619,12 +699,29 @@ function printRollResult(result: DownstreamRollResult): void {
 
   console.log(`Merged upstream/main at ${result.upstreamCommit} into ${result.branch}.`);
   printChangeRecords(result.changeRecords);
-  console.log("Next: use $merge-t3code-downstream to reconcile every overlay before running init.");
+  console.log("Next: use $t3-sync to reconcile every overlay before running init.");
   console.log("Then run active change validation followed by:");
   console.log("  vp node downstream/tools/downstream.ts init");
-  console.log("  vp run build:desktop");
-  console.log("  vp node downstream/tools/downstream.ts build");
-  console.log(`  git push -u origin ${result.branch}`);
+  console.log("  vp node downstream/tools/downstream.ts inspect");
+  console.log("Build a DMG separately only when explicitly needed.");
+}
+
+function printInspection(result: DownstreamInspection): void {
+  console.log(`Target: ${result.target} at ${result.upstreamCommit}`);
+  console.log(`Previous upstream: ${result.previousUpstream} via ${result.priorRef}`);
+  console.log(`Upstream-changed paths: ${result.changedPaths.length}`);
+  if (result.intersections.length === 0) {
+    console.log("Overlay intersections: none");
+    return;
+  }
+  console.log("Overlay intersections:");
+  for (const intersection of result.intersections) {
+    const records =
+      intersection.records.length === 0 ? "ownerless" : intersection.records.join(", ");
+    console.log(
+      `- ${intersection.path} (${records}; ${intersection.overlayMatches ? "matching" : "reconciliation required"})`,
+    );
+  }
 }
 
 function main(): void {
@@ -635,9 +732,13 @@ function main(): void {
   const [command, ...extra] = positionals;
   if (
     extra.length > 0 ||
-    (command !== "roll" && command !== "build" && command !== "init" && command !== "verify")
+    (command !== "roll" &&
+      command !== "build" &&
+      command !== "init" &&
+      command !== "inspect" &&
+      command !== "verify")
   ) {
-    throw new DownstreamCommandError("Usage: downstream <init | roll | build | verify>");
+    throw new DownstreamCommandError("Usage: downstream <init | roll | inspect | build | verify>");
   }
   const rootDir = resolveRepoRoot(process.cwd());
   if (command === "init") {
@@ -651,6 +752,10 @@ function main(): void {
   if (command === "verify") {
     verifyDownstream(rootDir);
     console.log("Downstream overlay is applied, including the final root AGENTS.md pointer.");
+    return;
+  }
+  if (command === "inspect") {
+    printInspection(inspectDownstream(rootDir));
     return;
   }
   if (command === "build") {
@@ -668,9 +773,7 @@ if (import.meta.main) {
   } catch (error) {
     if (error instanceof DownstreamMergeConflictError) {
       console.error(error.message);
-      console.error(
-        "Use $merge-t3code-downstream to resolve conflicts and reconcile every overlay.",
-      );
+      console.error("Use $t3-sync to resolve conflicts and reconcile every overlay.");
       console.error("After both copies match, run:");
       console.error("  vp node downstream/tools/downstream.ts init");
       console.error("Review and add every resolved and applied file before committing the merge.");

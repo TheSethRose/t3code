@@ -9,6 +9,7 @@ import * as NodeTest from "node:test";
 import {
   DownstreamCommandError,
   initDownstream,
+  inspectDownstream,
   parseNightlyTag,
   resolveDownstreamBuildVersion,
   rollDownstream,
@@ -65,21 +66,32 @@ NodeTest.test("appends the downstream pointer without replacing upstream instruc
       NodePath.join(temporaryRoot, "downstream", "t3code", "AGENTS.md"),
       "## Downstream build\n\nThis is the canonical downstream rule.\n",
     );
-    NodeFS.mkdirSync(
-      NodePath.join(temporaryRoot, "downstream", "skills", "merge-t3code-downstream"),
-      { recursive: true },
-    );
-    NodeFS.writeFileSync(
-      NodePath.join(temporaryRoot, "downstream", "skills", "merge-t3code-downstream", "SKILL.md"),
-      "---\nname: merge-t3code-downstream\ndescription: Reconcile downstream.\n---\n",
-    );
-    NodeFS.mkdirSync(NodePath.join(agentsSkillsDir, "merge-t3code-downstream"), {
+    NodeFS.mkdirSync(NodePath.join(temporaryRoot, "downstream", "skills", "t3-sync"), {
       recursive: true,
     });
     NodeFS.writeFileSync(
-      NodePath.join(agentsSkillsDir, "merge-t3code-downstream", "stale.txt"),
-      "stale\n",
+      NodePath.join(temporaryRoot, "downstream", "skills", "t3-sync", "SKILL.md"),
+      "---\nname: t3-sync\ndescription: Reconcile downstream.\n---\n",
     );
+    NodeFS.mkdirSync(NodePath.join(temporaryRoot, "downstream", "skills", "t3-work"), {
+      recursive: true,
+    });
+    NodeFS.writeFileSync(
+      NodePath.join(temporaryRoot, "downstream", "skills", "t3-work", "SKILL.md"),
+      "---\nname: t3-work\ndescription: Work downstream.\n---\n",
+    );
+    NodeFS.mkdirSync(NodePath.join(agentsSkillsDir, "t3-sync"), {
+      recursive: true,
+    });
+    NodeFS.writeFileSync(NodePath.join(agentsSkillsDir, "t3-sync", "stale.txt"), "stale\n");
+    for (const name of [
+      "merge-t3code-downstream",
+      "build-t3code-downstream",
+      "reconcile-t3code-downstream-records",
+    ]) {
+      NodeFS.mkdirSync(NodePath.join(agentsSkillsDir, name), { recursive: true });
+      NodeFS.writeFileSync(NodePath.join(agentsSkillsDir, name, "SKILL.md"), "legacy\n");
+    }
     NodeFS.mkdirSync(NodePath.join(agentsSkillsDir, "unrelated"), { recursive: true });
     NodeFS.writeFileSync(NodePath.join(agentsSkillsDir, "unrelated", "SKILL.md"), "unrelated\n");
     NodeFS.mkdirSync(NodePath.join(temporaryRoot, "downstream", "t3code", "apps", "example"), {
@@ -109,14 +121,27 @@ NodeTest.test("appends the downstream pointer without replacing upstream instruc
       "downstream\n",
     );
     NodeAssert.equal(
-      NodeFS.readFileSync(
-        NodePath.join(agentsSkillsDir, "merge-t3code-downstream", "SKILL.md"),
-        "utf8",
-      ),
-      "---\nname: merge-t3code-downstream\ndescription: Reconcile downstream.\n---\n",
+      NodeFS.readFileSync(NodePath.join(agentsSkillsDir, "t3-sync", "SKILL.md"), "utf8"),
+      "---\nname: t3-sync\ndescription: Reconcile downstream.\n---\n",
     );
     NodeAssert.equal(
-      NodeFS.existsSync(NodePath.join(agentsSkillsDir, "merge-t3code-downstream", "stale.txt")),
+      NodeFS.readFileSync(NodePath.join(agentsSkillsDir, "t3-work", "SKILL.md"), "utf8"),
+      "---\nname: t3-work\ndescription: Work downstream.\n---\n",
+    );
+    NodeAssert.equal(
+      NodeFS.existsSync(NodePath.join(agentsSkillsDir, "t3-sync", "stale.txt")),
+      false,
+    );
+    NodeAssert.equal(
+      NodeFS.existsSync(NodePath.join(agentsSkillsDir, "merge-t3code-downstream")),
+      false,
+    );
+    NodeAssert.equal(
+      NodeFS.existsSync(NodePath.join(agentsSkillsDir, "build-t3code-downstream")),
+      false,
+    );
+    NodeAssert.equal(
+      NodeFS.existsSync(NodePath.join(agentsSkillsDir, "reconcile-t3code-downstream-records")),
       false,
     );
     NodeAssert.equal(
@@ -208,12 +233,23 @@ NodeTest.test(
 
       const result = rollDownstream({ rootDir: fork, quiet: true });
       const upstreamCommit = git(fork, "rev-parse", "upstream/main");
+      const inspection = inspectDownstream(fork);
 
       NodeAssert.equal(result.kind, "merged");
       NodeAssert.equal(result.target, "upstream/main");
       NodeAssert.equal(result.upstreamCommit, upstreamCommit);
       NodeAssert.equal(result.branch, `sync/upstream-${upstreamCommit.slice(0, 12)}`);
       NodeAssert.equal(git(fork, "branch", "--show-current"), result.branch);
+      NodeAssert.equal(inspection.upstreamCommit, upstreamCommit);
+      NodeAssert.equal(inspection.priorRef, "HEAD^1");
+      NodeAssert.ok(inspection.changedPaths.includes("post-nightly.txt"));
+      NodeAssert.deepStrictEqual(inspection.intersections, [
+        {
+          path: "shared.txt",
+          records: ["downstream/changes/shared.md"],
+          overlayMatches: false,
+        },
+      ]);
       NodeAssert.equal(git(fork, "rev-parse", "origin/main"), originalMain);
       NodeAssert.equal(
         NodeFS.readFileSync(NodePath.join(fork, "downstream.txt"), "utf8"),

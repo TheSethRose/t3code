@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Review"
+  short_description: "Review a downstream pull request"
+  default_prompt: "Use $t3-review to adversarially review a downstream T3 Code pull request without changing its branch."
