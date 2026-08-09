@@ -28,8 +28,8 @@ or translated into competing same-profile Hermes processes.
   and mobile skill pickers. Selected, catalog-known `$skill` tokens add a provider-only `skill_view`
   instruction while the persisted user message stays unchanged.
 - Web, desktop, and mobile call the provider Hermes. They use the supplied official NousResearch
-  mark in black on light themes and white on dark themes. The invented ACP mark, ACP model filter,
-  and ACP Registry coming-soon card are removed.
+  mark in black on light themes and white on dark themes. The old generic ACP provider identity and
+  ACP model filter are removed; upstream's separate ACP Registry coming-soon card remains intact.
 - This version supports profiles on the same machine as T3. Remote Gateway, Hermes Cloud, and SSH
   launch modes remain out of scope until a remote connection is required.
 
