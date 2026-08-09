@@ -189,4 +189,57 @@ describe("openCodeMessageToUsageRecord", () => {
     expect(listCalls).toBe(1);
     expect(records.map((record) => record.sessionId)).toEqual(["current"]);
   });
+
+  it("falls back to the session aggregate when OpenCode cannot project its messages", async () => {
+    const client = {
+      v2: {
+        session: {
+          list: async () => ({
+            data: {
+              data: [
+                {
+                  id: "legacy_session",
+                  projectID: "project_1",
+                  model: { providerID: "opencode", id: "deepseek-v4-flash-free" },
+                  cost: 0,
+                  tokens: {
+                    input: 14_199,
+                    output: 251,
+                    reasoning: 82,
+                    cache: { read: 41_984, write: 0 },
+                  },
+                  time: { created: 150, updated: 200 },
+                  title: "Legacy session",
+                },
+              ],
+              cursor: { next: null },
+            },
+          }),
+        },
+      },
+      session: {
+        messages: async () => {
+          throw new Error("OpenCode projection failed");
+        },
+      },
+    } as unknown as OpencodeClient;
+
+    await expect(readOpenCodeUsage(client, 100)).resolves.toEqual([
+      {
+        provider: "opencode",
+        timestampMs: 200,
+        model: "opencode/deepseek-v4-flash-free",
+        sessionId: "legacy_session",
+        totals: {
+          uncachedInputTokens: 14_199,
+          cachedInputTokens: 41_984,
+          cacheCreationTokens: 0,
+          outputTokens: 251,
+          reasoningTokens: 82,
+        },
+        reportedCostUsd: 0,
+        dedupeKey: "opencode-session:legacy_session",
+      },
+    ]);
+  });
 });

@@ -91,6 +91,27 @@ function legacyMessageToUsageRecord(
   });
 }
 
+function sessionToUsageRecord(session: V2SessionsResponse["items"][number]): UsageRecord | null {
+  const totals = {
+    uncachedInputTokens: token(session.tokens.input),
+    cachedInputTokens: token(session.tokens.cache.read),
+    cacheCreationTokens: token(session.tokens.cache.write),
+    outputTokens: token(session.tokens.output),
+    reasoningTokens: Math.min(token(session.tokens.output), token(session.tokens.reasoning)),
+  };
+  if (totalTokens(totals) === 0) return null;
+
+  return {
+    provider: "opencode",
+    timestampMs: session.time.updated,
+    model: session.model ? `${session.model.providerID}/${session.model.id}` : "unknown",
+    sessionId: session.id,
+    totals,
+    reportedCostUsd: Number.isFinite(session.cost) && session.cost >= 0 ? session.cost : null,
+    dedupeKey: `opencode-session:${session.id}`,
+  };
+}
+
 export async function readOpenCodeUsage(
   client: OpencodeClient,
   sinceMs: number,
@@ -122,10 +143,15 @@ export async function readOpenCodeUsage(
   for (const session of sessions) {
     // OpenCode's own stats command reads the complete legacy message projection.
     // The v2 projection rejects many valid pre-v2 sessions in current stores.
-    const messages = (await client.session.messages({ sessionID: session.id })).data;
-    if (!messages) throw new Error(`OpenCode session '${session.id}' returned no messages.`);
-    for (const message of messages) {
-      const record = legacyMessageToUsageRecord(session.id, message.info);
+    try {
+      const messages = (await client.session.messages({ sessionID: session.id })).data;
+      if (!messages) throw new Error(`OpenCode session '${session.id}' returned no messages.`);
+      for (const message of messages) {
+        const record = legacyMessageToUsageRecord(session.id, message.info);
+        if (record) records.push(record);
+      }
+    } catch {
+      const record = sessionToUsageRecord(session);
       if (record) records.push(record);
     }
   }

@@ -14,7 +14,9 @@ work performed outside T3 without replacing the existing transcript readers or p
 - `apps/server/src/usage/usageOpenCode.ts` pages OpenCode v2 sessions through the existing
   authenticated SDK client, accepts the current and pinned session envelopes, scans all projects,
   enforces the requested cutoff when newer servers ignore the pinned SDK's filter, and uses the
-  same legacy-compatible message projection as OpenCode's stats command.
+  same legacy-compatible message projection as OpenCode's stats command. If OpenCode cannot project
+  one older session's messages, the reader preserves that session through OpenCode's own aggregate
+  tokens, cost, model, and update time instead of failing the complete window.
 - `apps/server/src/usage/usageCursor.ts` reads Cursor's app database read-only, derives the dashboard
   session in memory, pages account usage with completeness checks, and maps provider-reported tokens
   and raw token cost into `UsageRecord`. Cursor's empty success object is treated as zero usage.
@@ -61,9 +63,10 @@ git diff --check
 
 OpenCode coverage must prove completed assistant messages retain model, token categories, reasoning,
 cost, session, and message identity across both response envelopes, including token-bearing free
-models at zero reported cost. Cursor coverage must prove read-only app authentication, empty-window
-success, boundary-overlap reconciliation, provider-reported cost mapping, malformed-event isolation,
-and fail-closed pagination.
+models at zero reported cost, plus aggregate fallback for a session whose message projection fails.
+Cursor coverage must prove read-only app authentication, empty-window success, boundary-overlap
+reconciliation, provider-reported cost mapping, malformed-event isolation, and fail-closed
+pagination.
 
 ## Removal Condition
 
