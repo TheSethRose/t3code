@@ -13,7 +13,8 @@ downstream lifecycle.
 
 ## 1. Define the Change
 
-Start from one ready GitHub issue with `$t3-work`. It creates a short-lived `feat/*` or `fix/*`
+Capture an idea with `$t3-plan`; it creates one planned GitHub issue and leaves `ready` for human
+approval. Start from one ready issue with `$t3-work`. It creates a short-lived `feat/*` or `fix/*`
 branch and adds the completed `downstream/changes/` record in the same commit series, using these
 sections:
 

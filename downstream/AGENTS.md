@@ -27,8 +27,9 @@ policy.
 
 ## Active Changes
 
-Start new work from a ready GitHub issue with `$t3-work`. Create `changes/<slug>.md` in the same
-commit series that introduces verified fork-only behavior. Keep each record short and include:
+Capture new work as a scoped GitHub issue with `$t3-plan`; only a human adds `ready`. Start ready
+work with `$t3-work`. Create `changes/<slug>.md` in the same commit series that introduces verified
+fork-only behavior. Keep each record short and include:
 
 - why the deviation exists;
 - affected contracts, providers, clients, runtime paths, or source areas;

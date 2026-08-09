@@ -21,9 +21,9 @@ source, then explain only the downstream policy or compatibility work layered on
   downstream provider checklist.
 
 The operational commands for bootstrapping, syncing upstream, resolving conflicts, and building a
-local installer stay in [`downstream/README.md`](../README.md). GitHub issues hold new work;
-`downstream/changes/` lists completed, active fork-only behavior. Git history is the archive after
-removal.
+local installer stay in [`downstream/README.md`](../README.md). `$t3-plan` captures new work in
+GitHub issues; `downstream/changes/` lists completed, active fork-only behavior. Git history is the
+archive after removal.
 
 ## Documentation Rules
 

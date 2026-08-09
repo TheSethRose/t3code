@@ -127,9 +127,10 @@ git config --local rerere.autoupdate false
 
 ## Adding a Downstream Change
 
-Follow the [Change Lifecycle](docs/feature-lifecycle.md). Start ready work with `$t3-work`, put
-executable code and tests in their normal repository paths, and keep each concern in a coherent
-commit or short commit series. Add a record under `downstream/changes/`, using
+Follow the [Change Lifecycle](docs/feature-lifecycle.md). Capture new work with `$t3-plan`, then
+start human-approved ready work with `$t3-work`. Put executable code and tests in their normal
+repository paths and keep each concern in a coherent commit or short commit series. Add a record
+under `downstream/changes/`, using
 `downstream/changes/Bugs/<slug>.md` for bug fixes, with these sections:
 
 ```markdown
@@ -162,13 +163,15 @@ deletions, and executable mirrored tests.
 Use the repository skills around GitHub's native issue and pull-request flow:
 
 ```text
+$t3-plan <idea-or-plan>
 $t3-work #<issue>
 $t3-review #<pull-request>
 $t3-close #<issue>
 ```
 
-`$t3-work` implements one ready issue and opens a draft PR, `$t3-review` performs the separate
-read-only review, and `$t3-close` verifies the merged result before commenting and closing the issue.
+`$t3-plan` investigates and creates one planned issue without marking it ready, `$t3-work` implements
+one human-approved ready issue and opens a draft PR, `$t3-review` performs the separate read-only
+review, and `$t3-close` verifies the merged result before commenting and closing the issue.
 
 ## Syncing Upstream
 
