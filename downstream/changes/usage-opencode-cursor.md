@@ -25,10 +25,15 @@ work performed outside T3 without replacing the existing transcript readers or p
 - `apps/server/src/server.ts` provides the existing OpenCode runtime to the Usage layer.
 - `apps/server/src/usage/usageAggregation.ts` carries an opaque source identity into new-provider
   buckets so separate OpenCode servers remain independently de-duplicable.
-- `apps/web/src/usage/usageMerge.ts` claims remote account and server sources by opaque identity and
-  ignores failed claims when another environment can read the same source successfully.
+- `packages/shared/src/usageMerge.ts` claims remote account and server sources by opaque identity and
+  ignores failed claims when another environment can read the same source successfully. Upstream
+  moved the shared merge helper out of the web package; the downstream source-identity behavior now
+  follows that shared boundary so web and mobile use one implementation.
 - `apps/web/src/components/usage/` adds existing Cursor and OpenCode marks, labels, colors, chart
   bands, daily columns, and loading placeholders to the current Usage presentation.
+- `apps/mobile/src/features/usage/usageProviders.ts` extends upstream's mobile Usage dashboard with
+  the same Cursor and OpenCode labels, colors, and provider order required by the downstream
+  contract.
 - Focused contract, server, merge, and chart tests live beside the affected code.
 
 ## Overlay Files
@@ -40,18 +45,19 @@ work performed outside T3 without replacing the existing transcript readers or p
 - `apps/server/src/usage/usageCursor.ts`
 - `apps/server/src/usage/usageOpenCode.test.ts`
 - `apps/server/src/usage/usageOpenCode.ts`
+- `apps/mobile/src/features/usage/usageProviders.ts`
 - `apps/web/src/components/usage/UsagePage.tsx`
 - `apps/web/src/components/usage/UsageProviderChart.test.ts`
 - `apps/web/src/components/usage/usageProviders.ts`
-- `apps/web/src/usage/usageMerge.test.ts`
-- `apps/web/src/usage/usageMerge.ts`
+- `packages/shared/src/usageMerge.test.ts`
+- `packages/shared/src/usageMerge.ts`
 - `packages/contracts/src/usage.test.ts`
 - `packages/contracts/src/usage.ts`
 
 ## Validation
 
 ```bash
-vp test run packages/contracts/src/usage.test.ts apps/server/src/usage/usageOpenCode.test.ts apps/server/src/usage/usageCursor.test.ts apps/server/src/usage/usageAggregation.test.ts apps/web/src/usage/usageMerge.test.ts apps/web/src/components/usage/UsageProviderChart.test.ts
+vp test run packages/contracts/src/usage.test.ts apps/server/src/usage/usageOpenCode.test.ts apps/server/src/usage/usageCursor.test.ts apps/server/src/usage/usageAggregation.test.ts packages/shared/src/usageMerge.test.ts apps/web/src/components/usage/UsageProviderChart.test.ts
 vp run --filter @t3tools/contracts typecheck
 vp run --filter t3 typecheck
 vp run --filter @t3tools/web typecheck
