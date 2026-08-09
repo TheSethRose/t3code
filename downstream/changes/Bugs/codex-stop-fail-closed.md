@@ -8,8 +8,9 @@ must end the exact Codex session when graceful interruption cannot be confirmed 
 
 ## Affected Surfaces
 
-- `apps/server/src/provider/Layers/CodexSessionRuntime.ts` sends root and collaboration-child
-  interrupts concurrently and requires all of them to finish within five seconds.
+- `apps/server/src/provider/Layers/CodexSessionRuntime.ts` preserves the active turn ID when Codex
+  accepts a queued follow-up, sends root and collaboration-child interrupts concurrently, and
+  requires all of them to finish within five seconds.
 - `apps/server/src/provider/Layers/CodexAdapter.ts` closes only the affected Codex session when any
   interrupt is rejected or exceeds the deadline. The next turn uses the existing session startup
   and resume path.
