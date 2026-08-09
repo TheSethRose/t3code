@@ -1,6 +1,6 @@
 # Downstream Change Lifecycle
 
-A downstream change is one independently removable deviation from the accepted upstream nightly.
+A downstream change is one independently removable deviation from the accepted upstream commit.
 Executable code and tests stay in their normal `apps/`, `packages/`, `scripts/`, or infrastructure
 paths. Every downstream-owned file has an exact counterpart at the same relative path under
 `downstream/t3code/`. Its maintenance record lives under `downstream/changes/` and exists only while
@@ -32,7 +32,7 @@ write the change record with these sections:
 
 `Why` states the user-visible or operational result. `Affected Surfaces` names the normal source and
 test paths, their overlay counterparts, and the wire, settings, data, and mixed-version behavior that
-must be reviewed during a nightly roll. `Validation` contains exact runnable commands and the
+must be reviewed during an upstream sync. `Validation` contains exact runnable commands and the
 expected proof. `Removal Condition` names the upstream change or product decision that makes the
 deviation unnecessary.
 
@@ -74,7 +74,7 @@ For a cross-surface feature, use this order:
 6. Update user, internal, operational, and downstream docs where the behavior belongs.
 
 Keep the change in one coherent commit or short commit series. Do not combine unrelated cleanup with
-the deviation; smaller ownership makes nightly conflict review and later removal cheaper.
+the deviation; smaller ownership makes upstream conflict review and later removal cheaper.
 
 ## 4. Validate the Real Boundary
 
@@ -98,7 +98,7 @@ not replace focused validation with repo-wide checks outside CI.
 
 ## 5. Roll Forward
 
-During each nightly roll, use `$merge-t3code-downstream` after the upstream merge and before
+During each upstream sync, use `$merge-t3code-downstream` after the upstream merge and before
 `downstream.ts init`. Compare upstream changes with every active record's files and affected
 surfaces, resolve against current upstream architecture, and update the normal file, overlay
 counterpart, and record together. Run init only after both copies contain the reviewed result, then
@@ -112,7 +112,7 @@ requirement that justifies it.
 ## 6. Remove the Deviation
 
 When upstream provides equivalent behavior, restore the upstream implementation and remove the
-overlay counterparts and change record in the same roll. The copy-only overlay cannot preserve a
+overlay counterparts and change record in the same sync. The copy-only overlay cannot preserve a
 downstream deletion of an upstream-tracked file; add and test an explicit tombstone mechanism before
 allowing that kind of deviation. Keep a regression test only when it still protects behavior
 upstream does not cover. Git history retains the old rationale, so inactive change records do not

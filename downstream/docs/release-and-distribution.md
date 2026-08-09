@@ -86,7 +86,7 @@ build variants, then document every downstream override here before publishing.
 
 Once all applicable gates exist, use this order:
 
-1. Accept a tested upstream nightly into downstream `main`.
+1. Accept a tested `upstream/main` commit into downstream `main`.
 2. Run every active change record and downstream control-plane check.
 3. Build from the exact clean commit and record its upstream baseline and downstream commit.
 4. Publish the exact matching server distribution before clients that request it.
@@ -96,5 +96,5 @@ Once all applicable gates exist, use this order:
 8. Install the released artifact on a clean test profile and verify startup, pairing, one completed
    turn, restart, and rollback or manual recovery.
 
-Never publish directly from a nightly sync branch. `origin/main` is the accepted downstream product
+Never publish directly from an upstream sync branch. `origin/main` is the accepted downstream product
 and remains the release source.

@@ -17,12 +17,12 @@ export class DownstreamCommandError extends Error {}
 
 export class DownstreamMergeConflictError extends Error {
   readonly branch: string;
-  readonly tag: string;
+  readonly target: string;
 
-  constructor(branch: string, tag: string) {
-    super(`Nightly ${tag} conflicts with downstream changes on ${branch}.`);
+  constructor(branch: string, target: string) {
+    super(`${target} conflicts with downstream changes on ${branch}.`);
     this.branch = branch;
-    this.tag = tag;
+    this.target = target;
   }
 }
 
@@ -40,7 +40,8 @@ interface RunOptions {
 
 export interface DownstreamRollResult {
   readonly kind: "current" | "merged";
-  readonly tag: string;
+  readonly target: "upstream/main";
+  readonly upstreamCommit: string;
   readonly branch: string;
   readonly changeRecords: ReadonlyArray<string>;
 }
@@ -469,27 +470,9 @@ export function resolveDownstreamBuildVersion(tag: string, commit: string): stri
   return `${nightly.version}-downstream.${nightly.date}.${nightly.run}.${commit.toLowerCase()}`;
 }
 
-function resolveNightlyTag(rootDir: string, requestedTag?: string): string {
-  if (requestedTag) {
-    parseNightlyTag(requestedTag);
-    if (!gitSucceeds(rootDir, ["show-ref", "--verify", "--quiet", `refs/tags/${requestedTag}`])) {
-      throw new DownstreamCommandError(`Nightly tag '${requestedTag}' was not found after fetch.`);
-    }
-    return requestedTag;
-  }
-
-  const tag = git(rootDir, ["tag", "--list", "v*-nightly.*", "--sort=-version:refname"])
-    .split("\n")
-    .find(Boolean);
-  if (!tag) throw new DownstreamCommandError("No published nightly tags were found after fetch.");
-  parseNightlyTag(tag);
-  return tag;
-}
-
 export function rollDownstream(
   options: {
     readonly rootDir?: string;
-    readonly tag?: string;
     readonly quiet?: boolean;
   } = {},
 ): DownstreamRollResult {
@@ -500,7 +483,7 @@ export function rollDownstream(
   const branch = git(rootDir, ["branch", "--show-current"]);
   if (branch !== "main") {
     throw new DownstreamCommandError(
-      `Run the nightly roll from main, not '${branch || "detached HEAD"}'.`,
+      `Run the upstream sync from main, not '${branch || "detached HEAD"}'.`,
     );
   }
 
@@ -510,15 +493,16 @@ export function rollDownstream(
   gitInherit(rootDir, ["fetch", "upstream", "--tags", "--prune"], quiet);
   gitInherit(rootDir, ["merge", "--ff-only", "origin/main"], quiet);
 
-  const tag = resolveNightlyTag(rootDir, options.tag);
-  const nightly = parseNightlyTag(tag);
-  const syncBranch = `sync/nightly-${nightly.date}.${nightly.run}`;
+  const target = "upstream/main" as const;
+  const upstreamCommit = git(rootDir, ["rev-parse", target]);
+  const syncBranch = `sync/upstream-${upstreamCommit.slice(0, 12)}`;
   const changeRecords = activeChangeRecords(rootDir);
 
-  if (gitSucceeds(rootDir, ["merge-base", "--is-ancestor", tag, "HEAD"])) {
+  if (gitSucceeds(rootDir, ["merge-base", "--is-ancestor", upstreamCommit, "HEAD"])) {
     return {
       kind: "current",
-      tag,
+      target,
+      upstreamCommit,
       branch,
       changeRecords,
     };
@@ -533,7 +517,7 @@ export function rollDownstream(
   }
 
   gitInherit(rootDir, ["switch", "-c", syncBranch], quiet);
-  const merge = NodeChildProcess.spawnSync("git", ["merge", "--no-ff", tag], {
+  const merge = NodeChildProcess.spawnSync("git", ["merge", "--no-ff", upstreamCommit], {
     cwd: rootDir,
     encoding: "utf8",
     stdio: quiet ? ["ignore", "pipe", "pipe"] : "inherit",
@@ -543,7 +527,7 @@ export function rollDownstream(
   }
   if (merge.status !== 0) {
     if (gitSucceeds(rootDir, ["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])) {
-      throw new DownstreamMergeConflictError(syncBranch, tag);
+      throw new DownstreamMergeConflictError(syncBranch, target);
     }
     throw new DownstreamCommandError(
       `git merge exited with code ${merge.status ?? "unknown"}${quiet && merge.stderr.trim() ? `: ${merge.stderr.trim()}` : ""}.`,
@@ -552,7 +536,8 @@ export function rollDownstream(
 
   return {
     kind: "merged",
-    tag,
+    target,
+    upstreamCommit,
     branch: syncBranch,
     changeRecords,
   };
@@ -627,12 +612,12 @@ function printChangeRecords(records: ReadonlyArray<string>): void {
 
 function printRollResult(result: DownstreamRollResult): void {
   if (result.kind === "current") {
-    console.log(`Downstream main already contains ${result.tag}.`);
+    console.log(`Downstream main already contains upstream/main at ${result.upstreamCommit}.`);
     printChangeRecords(result.changeRecords);
     return;
   }
 
-  console.log(`Merged ${result.tag} into ${result.branch}.`);
+  console.log(`Merged upstream/main at ${result.upstreamCommit} into ${result.branch}.`);
   printChangeRecords(result.changeRecords);
   console.log("Next: use $merge-t3code-downstream to reconcile every overlay before running init.");
   console.log("Then run active change validation followed by:");
@@ -643,11 +628,8 @@ function printRollResult(result: DownstreamRollResult): void {
 }
 
 function main(): void {
-  const { values, positionals } = NodeUtil.parseArgs({
+  const { positionals } = NodeUtil.parseArgs({
     allowPositionals: true,
-    options: {
-      tag: { type: "string" },
-    },
     strict: true,
   });
   const [command, ...extra] = positionals;
@@ -655,13 +637,10 @@ function main(): void {
     extra.length > 0 ||
     (command !== "roll" && command !== "build" && command !== "init" && command !== "verify")
   ) {
-    throw new DownstreamCommandError(
-      "Usage: downstream <init | roll [--tag TAG] | build | verify>",
-    );
+    throw new DownstreamCommandError("Usage: downstream <init | roll | build | verify>");
   }
   const rootDir = resolveRepoRoot(process.cwd());
   if (command === "init") {
-    if (values.tag) throw new DownstreamCommandError("--tag is only valid with roll.");
     console.log(
       initDownstream(rootDir)
         ? "Initialized downstream overlays and skills."
@@ -670,19 +649,17 @@ function main(): void {
     return;
   }
   if (command === "verify") {
-    if (values.tag) throw new DownstreamCommandError("--tag is only valid with roll.");
     verifyDownstream(rootDir);
     console.log("Downstream overlay is applied, including the final root AGENTS.md pointer.");
     return;
   }
   if (command === "build") {
-    if (values.tag) throw new DownstreamCommandError("--tag is only valid with roll.");
     const result = buildDownstream();
     console.log(`Built downstream ${result.version} in ${result.outputDir}.`);
     return;
   }
 
-  printRollResult(rollDownstream(values.tag ? { tag: values.tag } : {}));
+  printRollResult(rollDownstream());
 }
 
 if (import.meta.main) {

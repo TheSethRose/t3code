@@ -76,9 +76,8 @@ downstream credentials, disable or gate every job that can publish npm packages,
 desktop update metadata, hosted web deployments, relay infrastructure, EAS builds, app-store builds,
 or announcements. See [Release and Distribution](release-and-distribution.md).
 
-Release provenance should identify the accepted upstream nightly, downstream commit, build workflow,
-platform, architecture, signing identity, and artifact checksum. A nightly tag is trusted only after
-it is confirmed as an upstream-published tag on the expected history.
+Release provenance should identify the accepted upstream commit, nearest published nightly tag,
+downstream commit, build workflow, platform, architecture, signing identity, and artifact checksum.
 
 ## Security Review Triggers
 

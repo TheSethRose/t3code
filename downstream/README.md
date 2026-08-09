@@ -1,6 +1,6 @@
 # Downstream T3 Code
 
-This fork is a maintained downstream build of T3 Code. Official nightlies provide immutable upstream baselines; `origin/main` is the integrated version we build and run.
+This fork is a maintained downstream build of T3 Code. Each fetched `upstream/main` tip provides the next exact integration baseline; `origin/main` is the integrated version we build and run.
 
 ## Documentation
 
@@ -20,23 +20,23 @@ user behavior; the downstream docs cover only the fork-specific layer:
   downstream.
 
 ```text
-upstream nightly tag
+upstream/main commit
          |
          v
-sync/nightly-<date>.<run> -- validation and CI --> origin/main
+sync/upstream-<sha> -- validation and CI --> origin/main
                                                   ^
                                       feat/* and fix/* branches
 ```
 
 ## Branches and Remotes
 
-| Name                        | Purpose                                                                  |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `upstream`                  | Official `pingdotgg/t3code` repository.                                  |
-| `origin`                    | `TheSethRose/t3code`, the downstream fork.                               |
-| `main`                      | Tested downstream product; never rebase or force-push after publication. |
-| `sync/nightly-<date>.<run>` | Temporary branch for one upstream nightly roll.                          |
-| `feat/*` and `fix/*`        | Short-lived branches for independently removable downstream changes.     |
+| Name                  | Purpose                                                                  |
+| --------------------- | ------------------------------------------------------------------------ |
+| `upstream`            | Official `pingdotgg/t3code` repository.                                  |
+| `origin`              | `TheSethRose/t3code`, the downstream fork.                               |
+| `main`                | Tested downstream product; never rebase or force-push after publication. |
+| `sync/upstream-<sha>` | Temporary branch for one exact upstream-main sync.                       |
+| `feat/*` and `fix/*`  | Short-lived branches for independently removable downstream changes.     |
 
 There is no pristine mirror branch or permanent `custom` branch. `upstream/main` and upstream tags already provide clean references.
 
@@ -52,7 +52,7 @@ vp node downstream/tools/downstream.ts init
 vp node downstream/tools/downstream.ts verify
 ```
 
-A nightly update merges an upstream tag into downstream `main`; it never resets `main` to an upstream tag. That is why `downstream/`, its tools, and downstream product changes remain available while the upstream tree advances. A raw upstream checkout must retrieve `downstream/` from the fork before it can run the initializer.
+An upstream update merges the fetched `upstream/main` commit into downstream `main`; it never resets `main` to upstream. That is why `downstream/`, its tools, and downstream product changes remain available while the upstream tree advances. A raw upstream checkout must retrieve `downstream/` from the fork before it can run the initializer.
 
 Downstream-only maintenance code lives under `downstream/tools/`, and repo-owned maintenance skills
 live under `downstream/skills/`. Init installs each skill into `~/.agents/skills/`.
@@ -82,7 +82,7 @@ No symlink is involved, so the resulting tree works in a fresh clone and in CI. 
 Product code and tests execute only from their normal T3 paths. Every downstream-owned normal file
 must have a byte-identical full-file copy at the same relative path under `downstream/t3code/`, and
 exactly one active record under `downstream/changes/` must list that path under `## Overlay Files`.
-The record makes ownership, nightly review, validation, and later removal intentional; an unowned
+The record makes ownership, upstream review, validation, and later removal intentional; an unowned
 overlay is invalid.
 
 The overlay is copy-only. It can add or replace a complete file, but it cannot represent deletion of
@@ -92,7 +92,7 @@ under `downstream/t3code/` and run only from their normal paths; the root test c
 exclude the overlay tree.
 
 `init` restores already-reviewed overlays; it is not a conflict resolver. It refuses to overwrite a
-dirty destination that differs from its overlay. During a nightly roll, reconcile the normal file
+dirty destination that differs from its overlay. During an upstream sync, reconcile the normal file
 and overlay first with `$merge-t3code-downstream`, then run `init` and `verify`.
 
 ## Machine Setup
@@ -121,7 +121,7 @@ git config --local rerere.enabled true
 git config --local rerere.autoupdate false
 ```
 
-`rerere` can propose a resolution seen during an earlier nightly roll, but it does not stage that resolution. Review every reused resolution before adding it.
+`rerere` can propose a resolution seen during an earlier upstream sync, but it does not stage that resolution. Review every reused resolution before adding it.
 
 ## Adding a Downstream Change
 
@@ -150,12 +150,12 @@ web, desktop, and mobile. A bug patch should fix the shared root cause and retai
 focused regression test.
 
 Every downstream-owned source, test, and configuration file must follow the [Overlay
-Contract](#overlay-contract). When a nightly changes an upstream file that we also own, review the
+Contract](#overlay-contract). When upstream changes a file that we also own, review the
 new upstream version and update both the working file and its overlay copy; `verify` rejects byte
 drift, missing or duplicate change-record ownership, stale record entries, unsupported upstream-file
 deletions, and executable mirrored tests.
 
-## Rolling to a Nightly
+## Syncing Upstream
 
 Start from a clean downstream `main`:
 
@@ -164,11 +164,7 @@ git switch main
 vp node downstream/tools/downstream.ts roll
 ```
 
-The command verifies clean state and required remotes, fetches `origin` and upstream tags, fast-forwards local `main` from `origin/main`, selects the newest published nightly, and creates `sync/nightly-<date>.<run>`. It exits without changing branches when `main` already contains that nightly. To roll a specific published nightly:
-
-```bash
-vp node downstream/tools/downstream.ts roll --tag vX.Y.Z-nightly.YYYYMMDD.RUN
-```
+The command verifies clean state and required remotes, fetches `origin` and `upstream`, fast-forwards local `main` from `origin/main`, resolves the exact fetched `upstream/main` commit, and creates `sync/upstream-<sha>`. It exits without changing branches only when downstream `main` already contains that exact upstream commit. Published nightly tags remain available for build-version metadata but never cap integration.
 
 The tool does not push, open a pull request, resolve conflicts, apply overlays, or merge the sync
 branch into downstream `main`. Those are review boundaries, not setup chores. After its upstream
@@ -178,9 +174,9 @@ running init.
 ## Resolving and Validating a Roll
 
 Use `$merge-t3code-downstream` after the upstream merge, including when Git reports no conflicts.
-The skill compares the previous accepted nightly, the new upstream nightly, the Git-merged source,
+The skill compares the previous accepted upstream commit, the new `upstream/main` commit, the Git-merged source,
 and each full-file overlay so a stale overlay cannot silently erase an upstream edit. Follow the
-[nightly compatibility check](docs/compatibility.md#nightly-compatibility-check), review every active
+[upstream compatibility check](docs/compatibility.md#upstream-compatibility-check), review every active
 file under `downstream/changes/`, remove deviations already supplied upstream, and run every command
 in each record's `Validation` section.
 
@@ -220,7 +216,7 @@ git push -u origin "$(git branch --show-current)"
 gh pr create --base main --fill
 ```
 
-Do not squash the nightly roll; the upstream merge ancestry records the accepted baseline.
+Do not squash the upstream sync; the merge ancestry records the exact accepted upstream commit.
 
 ## Building an Installable Artifact
 

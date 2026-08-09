@@ -2,7 +2,7 @@
 
 T3 Code separates a provider's implementation from its configured instances. A **driver** implements one protocol such as Codex or Claude; an **instance** is one configured copy of that driver, such as `codex_personal` or `codex_work`. Threads and requests route by instance ID, which is what makes multiple accounts or configurations of the same provider possible.
 
-The upstream [provider architecture](../../docs/internals/providers.md) remains the source of truth for the shared runtime. This guide describes the downstream extension points and the extra surface and maintenance decisions required when adding a provider to the fork. Follow the linked source when a nightly changes it rather than preserving an older downstream pattern, and apply the general [Change Lifecycle](feature-lifecycle.md) and [Compatibility](compatibility.md) rules as well.
+The upstream [provider architecture](../../docs/internals/providers.md) remains the source of truth for the shared runtime. This guide describes the downstream extension points and the extra surface and maintenance decisions required when adding a provider to the fork. Follow the linked source when upstream changes it rather than preserving an older downstream pattern, and apply the general [Change Lifecycle](feature-lifecycle.md) and [Compatibility](compatibility.md) rules as well.
 
 ## System Map
 
@@ -207,8 +207,8 @@ vp node downstream/tools/downstream.ts verify
 
 Add one integrated client pass for user-visible behavior when requested. The proof should show installation and authentication states, model discovery and selection, one completed turn, streaming output, interruption, continuation, and clean shutdown through the actual provider runtime.
 
-## Nightly Maintenance
+## Upstream Maintenance
 
-During each nightly roll, inspect upstream changes to the driver SPI, provider contracts, registry lifecycle, runtime events, settings UI, and model selectors before restoring the overlay. Update the working source and its `downstream/t3code/` counterpart together, then run the provider change record's validation and `downstream.ts verify`.
+During each upstream sync, inspect upstream changes to the driver SPI, provider contracts, registry lifecycle, runtime events, settings UI, and model selectors before restoring the overlay. Update the working source and its `downstream/t3code/` counterpart together, then run the provider change record's validation and `downstream.ts verify`.
 
-If upstream adds equivalent support, remove the downstream implementation, overlay files, and active change record in the same roll. If upstream changes only the shared architecture, adapt the downstream provider to the new pattern instead of preserving obsolete interfaces in a compatibility layer.
+If upstream adds equivalent support, remove the downstream implementation, overlay files, and active change record in the same sync. If upstream changes only the shared architecture, adapt the downstream provider to the new pattern instead of preserving obsolete interfaces in a compatibility layer.

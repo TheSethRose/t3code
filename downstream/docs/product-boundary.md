@@ -1,6 +1,6 @@
 # Product Boundary
 
-The downstream repository integrates selected fork-only behavior with published T3 Code nightly
+The downstream repository integrates selected fork-only behavior with exact `upstream/main`
 baselines. Upstream remains the source for the core server, contracts, clients, and release machinery;
 `origin/main` is the tested downstream product branch. See the upstream
 [architecture overview](../../docs/internals/overview.md) for the runtime model and
@@ -8,7 +8,7 @@ baselines. Upstream remains the source for the core server, contracts, clients, 
 
 ## Current Boundary
 
-The current downstream control layer can merge a nightly, verify its repository instructions, and
+The current downstream control layer can merge the fetched upstream tip, verify its repository instructions, and
 build a host-platform desktop artifact from a clean commit. It does not yet establish an independent
 public product identity or distribution system.
 

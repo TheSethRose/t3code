@@ -1,6 +1,6 @@
 # Downstream Compatibility
 
-Compatibility is the ability to roll the integrated product to a newer upstream nightly without
+Compatibility is the ability to sync the integrated product to the current `upstream/main` commit without
 losing downstream behavior or user data. It does not mean that every official client can safely
 control every downstream server. The upstream
 [connection runtime](../../docs/internals/connection-runtime.md),
@@ -9,17 +9,18 @@ control every downstream server. The upstream
 
 ## Baseline and Source Ownership
 
-Published upstream nightly tags are immutable integration inputs. `origin/main` is the accepted
+The fetched `upstream/main` commit is the integration input. Published nightly tags remain immutable
+build-version metadata. `origin/main` is the accepted
 downstream product, and normal Git commits record product source changes in their normal paths. Under
 the current overlay model, every downstream-owned product file also has an exact counterpart
 under `downstream/t3code/`, and `downstream.ts verify` rejects byte drift between the two copies.
 Each active deviation has one record under `downstream/changes/` that explains why it exists, which
 surfaces it affects, how to validate it, and when it can be removed. Bug records live in `Bugs/`.
 
-During a nightly roll, resolve conflicts against the new upstream architecture. Do not preserve an
+During an upstream sync, resolve conflicts against the new upstream architecture. Do not preserve an
 older interface through a compatibility layer solely to reduce the immediate merge diff. If upstream
 now provides equivalent behavior, remove the downstream implementation and its change record in the
-same roll.
+same sync.
 
 When upstream changes a file also owned by the overlay, review the merged upstream file before
 restoring the overlay. Update the normal file and its overlay counterpart together so the overlay does
@@ -92,12 +93,11 @@ The upstream [server update architecture](../../docs/internals/server-updates.md
 for launcher-managed trial updates, but attachments and other state files are outside that rollback
 boundary. Include those files in the compatibility review when a feature changes them.
 
-## Nightly Compatibility Check
+## Upstream Compatibility Check
 
-For each roll:
+For each sync:
 
-1. Confirm the selected tag is a published upstream nightly and is reachable from the expected
-   upstream history.
+1. Fetch upstream, record the exact `upstream/main` commit, and confirm it is the merge target.
 2. Review upstream changes overlapping every active change record and overlay-owned file.
 3. Reconcile contracts, migrations, provider APIs, settings, and client capability checks before
    resolving presentation conflicts.

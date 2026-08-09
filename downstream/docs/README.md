@@ -20,7 +20,7 @@ source, then explain only the downstream policy or compatibility work layered on
 - [Provider Architecture](providers.md) maps the provider driver extension points and gives the
   downstream provider checklist.
 
-The operational commands for bootstrapping, rolling to a nightly, resolving conflicts, and building
+The operational commands for bootstrapping, syncing upstream, resolving conflicts, and building
 a local installer stay in [`downstream/README.md`](../README.md). Active fork-only behavior is listed
 in `downstream/changes/`; Git history is the archive after a change is removed.
 
@@ -31,5 +31,5 @@ that an installer, update channel, hosted client, relay, mobile build, or server
 that path has been built and verified.
 
 When upstream changes an architecture described here, update the downstream document during the same
-nightly roll. Prefer linking to upstream documentation over copying it. Keep exact validation commands
-in the relevant change record so a roll can be checked without guessing which tests still matter.
+upstream sync. Prefer linking to upstream documentation over copying it. Keep exact validation commands
+in the relevant change record so a sync can be checked without guessing which tests still matter.

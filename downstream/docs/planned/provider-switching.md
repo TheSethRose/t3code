@@ -200,7 +200,7 @@ clients.
 - `downstream/t3code/` overlays and one `downstream/changes/` record for every fork-owned source or
   test file if this remains downstream-only
 
-Exact filenames should be rechecked against the current nightly before implementation. No database
+Exact filenames should be rechecked against the current upstream commit before implementation. No database
 migration is expected for the core switch because model selection, messages, and opaque runtime
 payload already exist.
 
