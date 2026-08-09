@@ -168,14 +168,19 @@ export async function readCursorUsage(input: {
   let completed = false;
 
   for (let page = 1; page <= maxPages; page += 1) {
-    const decoded = Schema.decodeUnknownSync(CursorPage)(
-      await input.fetchPage({
-        page,
-        pageSize,
-        startDate: String(input.startDateMs),
-        endDate: String(input.endDateMs),
-      }),
-    );
+    const raw = await input.fetchPage({
+      page,
+      pageSize,
+      startDate: String(input.startDateMs),
+      endDate: String(input.endDateMs),
+    });
+    const decoded =
+      typeof raw === "object" &&
+      raw !== null &&
+      !Array.isArray(raw) &&
+      Object.keys(raw).length === 0
+        ? { usageEventsDisplay: [] }
+        : Schema.decodeUnknownSync(CursorPage)(raw);
     const reported = number(decoded.totalUsageEventsCount);
     if (reported !== null) {
       const total = Math.trunc(reported);

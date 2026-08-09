@@ -529,7 +529,8 @@ export const make = Effect.gen(function* () {
           });
           const client = openCodeRuntime.createOpenCodeSdkClient({
             baseUrl: server.url,
-            directory: config.cwd,
+            // The empty directory keeps this account-wide Usage read global.
+            directory: "",
             ...(server.external && openCodeConfig.serverPassword
               ? { serverPassword: openCodeConfig.serverPassword }
               : {}),

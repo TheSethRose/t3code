@@ -1,16 +1,45 @@
 import type {
   OpencodeClient,
+  SessionMessagesResponse,
   SessionMessage,
-  V2SessionMessagesResponse,
   V2SessionsResponse,
 } from "@opencode-ai/sdk/v2";
 
 import { totalTokens, type UsageRecord } from "./usageTranscripts.ts";
 
-const PAGE_SIZE = 1000;
+const PAGE_SIZE = 200;
 const MAX_PAGES = 10_000;
 const token = (value: number): number =>
   Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+
+function pageItems<T>(
+  value: unknown,
+  label: string,
+): {
+  readonly items: readonly T[];
+  readonly next: string | undefined;
+} {
+  if (typeof value !== "object" || value === null) {
+    throw new Error(`${label} returned no data.`);
+  }
+  const page = value as {
+    readonly items?: unknown;
+    readonly data?: unknown;
+    readonly cursor?: { readonly next?: unknown };
+  };
+  const items = Array.isArray(page.items) ? page.items : page.data;
+  if (!Array.isArray(items) || typeof page.cursor !== "object" || page.cursor === null) {
+    throw new Error(`${label} returned an unsupported page.`);
+  }
+  if (
+    page.cursor.next !== undefined &&
+    page.cursor.next !== null &&
+    typeof page.cursor.next !== "string"
+  ) {
+    throw new Error(`${label} returned an invalid cursor.`);
+  }
+  return { items: items as readonly T[], next: page.cursor.next ?? undefined };
+}
 
 export function openCodeMessageToUsageRecord(
   sessionId: string,
@@ -44,52 +73,60 @@ export function openCodeMessageToUsageRecord(
   };
 }
 
+function legacyMessageToUsageRecord(
+  sessionId: string,
+  message: SessionMessagesResponse[number]["info"],
+): UsageRecord | null {
+  if (message.role !== "assistant" || message.time.completed === undefined) return null;
+
+  return openCodeMessageToUsageRecord(sessionId, {
+    id: message.id,
+    type: "assistant",
+    time: message.time,
+    agent: message.agent,
+    model: { providerID: message.providerID, id: message.modelID },
+    content: [],
+    cost: message.cost,
+    tokens: message.tokens,
+  });
+}
+
 export async function readOpenCodeUsage(
   client: OpencodeClient,
   sinceMs: number,
 ): Promise<readonly UsageRecord[]> {
-  const sessions = [];
+  const sessions: V2SessionsResponse["items"] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const data: V2SessionsResponse | undefined = (
+    const response = (
       await client.v2.session.list(
         cursor ? { cursor } : { limit: PAGE_SIZE, order: "desc", roots: true, start: sinceMs },
       )
     ).data;
-    if (!data) throw new Error("OpenCode session history returned no data.");
-    sessions.push(...data.items);
-    if (!data.cursor.next) break;
-    if (data.cursor.next === cursor)
-      throw new Error("OpenCode session pagination repeated a cursor.");
-    cursor = data.cursor.next;
+    const data = pageItems<V2SessionsResponse["items"][number]>(
+      response,
+      "OpenCode session history",
+    );
+    sessions.push(...data.items.filter((session) => session.time.updated >= sinceMs));
+    // OpenCode 1.18 ignores the pinned SDK's `start` query. Pages are newest
+    // first, so the first older session is the end of the requested window.
+    if (data.items.some((session) => session.time.updated < sinceMs)) break;
+    if (!data.next) break;
+    if (data.next === cursor) throw new Error("OpenCode session pagination repeated a cursor.");
+    cursor = data.next;
     if (page === MAX_PAGES - 1)
       throw new Error("OpenCode session history exceeded the page limit.");
   }
 
   const records: UsageRecord[] = [];
   for (const session of sessions) {
-    cursor = undefined;
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const data: V2SessionMessagesResponse | undefined = (
-        await client.v2.session.messages(
-          cursor
-            ? { sessionID: session.id, cursor }
-            : { sessionID: session.id, limit: PAGE_SIZE, order: "asc" },
-        )
-      ).data;
-      if (!data) throw new Error(`OpenCode session '${session.id}' returned no messages.`);
-      for (const message of data.items) {
-        const record = openCodeMessageToUsageRecord(session.id, message);
-        if (record) records.push(record);
-      }
-      if (!data.cursor.next) break;
-      if (data.cursor.next === cursor) {
-        throw new Error(`OpenCode session '${session.id}' repeated a message cursor.`);
-      }
-      cursor = data.cursor.next;
-      if (page === MAX_PAGES - 1) {
-        throw new Error(`OpenCode session '${session.id}' exceeded the page limit.`);
-      }
+    // OpenCode's own stats command reads the complete legacy message projection.
+    // The v2 projection rejects many valid pre-v2 sessions in current stores.
+    const messages = (await client.session.messages({ sessionID: session.id })).data;
+    if (!messages) throw new Error(`OpenCode session '${session.id}' returned no messages.`);
+    for (const message of messages) {
+      const record = legacyMessageToUsageRecord(session.id, message.info);
+      if (record) records.push(record);
     }
   }
   return records;

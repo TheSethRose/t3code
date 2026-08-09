@@ -11,11 +11,13 @@ work performed outside T3 without replacing the existing transcript readers or p
 
 - `packages/contracts/src/usage.ts` admits OpenCode and Cursor and adds backward-compatible opaque
   source identities so remote servers and accounts can be de-duplicated across environments.
-- `apps/server/src/usage/usageOpenCode.ts` pages OpenCode v2 sessions and messages through the
-  existing authenticated SDK client and maps completed assistant responses into `UsageRecord`.
+- `apps/server/src/usage/usageOpenCode.ts` pages OpenCode v2 sessions through the existing
+  authenticated SDK client, accepts the current and pinned session envelopes, scans all projects,
+  enforces the requested cutoff when newer servers ignore the pinned SDK's filter, and uses the
+  same legacy-compatible message projection as OpenCode's stats command.
 - `apps/server/src/usage/usageCursor.ts` reads Cursor's app database read-only, derives the dashboard
   session in memory, pages account usage with completeness checks, and maps provider-reported tokens
-  and raw token cost into `UsageRecord`.
+  and raw token cost into `UsageRecord`. Cursor's empty success object is treated as zero usage.
 - `apps/server/src/usage/UsageService.ts` upserts both readers beside the existing Claude and Codex
   scans. A missing or failed new source remains provider-local and does not erase successful usage.
 - `apps/server/src/server.ts` provides the existing OpenCode runtime to the Usage layer.
@@ -58,9 +60,10 @@ git diff --check
 ```
 
 OpenCode coverage must prove completed assistant messages retain model, token categories, reasoning,
-cost, session, and message identity. Cursor coverage must prove read-only app authentication,
-boundary-overlap reconciliation, provider-reported cost mapping, malformed-event isolation, and
-fail-closed pagination.
+cost, session, and message identity across both response envelopes, including token-bearing free
+models at zero reported cost. Cursor coverage must prove read-only app authentication, empty-window
+success, boundary-overlap reconciliation, provider-reported cost mapping, malformed-event isolation,
+and fail-closed pagination.
 
 ## Removal Condition
 

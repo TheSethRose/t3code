@@ -317,4 +317,28 @@ describe("mergeUsage", () => {
     expect(merged.costUsd).toBe(0);
     expect(merged.daily).toHaveLength(0);
   });
+
+  it("keeps a readable provider visible when its selected window has no usage", () => {
+    const merged = mergeUsage(
+      [
+        environment(
+          "env-a",
+          summary([], [{ provider: "opencode", hostId: "mac", homePath: "OpenCode server" }]),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+
+    expect(merged.providers).toEqual([
+      {
+        provider: "opencode",
+        costUsd: 0,
+        totalTokens: 0,
+        records: 0,
+        costShare: 0,
+        tokenShare: 0,
+      },
+    ]);
+    expect(merged.sourceWarnings).toEqual([]);
+  });
 });

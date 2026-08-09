@@ -255,6 +255,17 @@ export function mergeUsage(
           `${environment.label}: ${source.message ?? `${source.fingerprint.provider} usage is incomplete.`}`,
         );
       }
+      if (source.status === "missing" || source.status === "failed") continue;
+      if (
+        ownerByFingerprint.get(fingerprintKey(source.fingerprint)) === environment.environmentId &&
+        !providerAccumulator.has(source.fingerprint.provider)
+      ) {
+        providerAccumulator.set(source.fingerprint.provider, {
+          costUsd: 0,
+          totalTokens: 0,
+          records: 0,
+        });
+      }
     }
     const { buckets, sessions: environmentSessions } = ownedContribution(
       environment,

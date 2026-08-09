@@ -58,6 +58,16 @@ describe("Cursor app auth", () => {
 });
 
 describe("readCursorUsage", () => {
+  it("treats Cursor's empty success object as zero usage", async () => {
+    const records = await readCursorUsage({
+      startDateMs: 1,
+      endDateMs: 2,
+      fetchPage: async () => ({}),
+    });
+
+    expect(records).toEqual([]);
+  });
+
   it("reconciles exact page-boundary overlap and maps provider-reported cost", async () => {
     const first = event(1);
     const boundary = event(2);
