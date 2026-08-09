@@ -48,6 +48,7 @@ import {
   resolvePiLaunchArgs,
   type PiRpcClient,
 } from "../pi/PiRpcClient.ts";
+import { buildT3Guidance } from "../T3Guidance.ts";
 
 const PROVIDER = ProviderDriverKind.make("pi");
 const PI_RESUME_VERSION = 1;
@@ -466,6 +467,8 @@ export const makePiAdapter = Effect.fn("makePiAdapter")(function* (
           binaryPath: piSettings.binaryPath,
           args: [
             ...launchArgs,
+            "--append-system-prompt",
+            buildT3Guidance({ hasPreviewTools: false }),
             "--extension",
             extensionPath,
             ...(resume ? ["--session-id", resume.sessionId] : []),

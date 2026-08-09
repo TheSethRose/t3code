@@ -244,6 +244,30 @@ describe("buildTurnStartParams", () => {
       ],
     });
   });
+
+  it("scopes preview guidance to sessions with the t3-code MCP attached", () => {
+    const withPreview = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "full-access",
+        prompt: "Browse",
+        interactionMode: "default",
+        hasPreviewTools: true,
+      }),
+    );
+    const withoutPreview = Effect.runSync(
+      buildTurnStartParams({
+        threadId: "provider-thread-1",
+        runtimeMode: "full-access",
+        prompt: "Browse",
+        interactionMode: "default",
+      }),
+    );
+    const withInstructions = withPreview.collaborationMode?.settings.developer_instructions;
+    const withoutInstructions = withoutPreview.collaborationMode?.settings.developer_instructions;
+    NodeAssert.match(withInstructions ?? "", /preview_status/);
+    NodeAssert.doesNotMatch(withoutInstructions ?? "", /preview_/);
+  });
 });
 
 describe("buildCodexDeveloperInstructions", () => {
@@ -293,17 +317,46 @@ describe("buildCodexDeveloperInstructions", () => {
   });
 });
 
-describe("T3 browser developer instructions", () => {
-  it("prefers the product-native preview tools in both collaboration modes", () => {
-    for (const instructions of [
-      CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
-      CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
-    ]) {
+describe("T3 shared guidance composition", () => {
+  it("prefers the product-native preview tools in both collaboration modes when preview tools are attached", () => {
+    for (const mode of ["default", "plan"] as const) {
+      const instructions = buildCodexDeveloperInstructions(
+        mode,
+        {
+          model: "gpt-5.3-codex",
+          reasoningEffort: "medium",
+        },
+        { hasPreviewTools: true },
+      );
       NodeAssert.match(instructions, /t3-code/);
       NodeAssert.match(instructions, /preview_status/);
       NodeAssert.match(instructions, /preview_open/);
       NodeAssert.match(instructions, /Do not switch to global browser skills/);
     }
+  });
+
+  it("omits preview guidance when no preview tools are attached", () => {
+    const instructions = buildCodexDeveloperInstructions("default", {
+      model: "gpt-5.3-codex",
+      reasoningEffort: "medium",
+    });
+    NodeAssert.doesNotMatch(instructions, /preview_/);
+    NodeAssert.match(instructions, /T3 Code runtime/);
+  });
+
+  it("keeps Codex protocol details in the Codex mode blocks, not in shared guidance", () => {
+    const instructions = buildCodexDeveloperInstructions(
+      "plan",
+      {
+        model: "gpt-5.3-codex",
+        reasoningEffort: "medium",
+      },
+      { hasPreviewTools: true },
+    );
+    NodeAssert.match(instructions, /request_user_input/);
+    NodeAssert.match(instructions, /update_plan/);
+    NodeAssert.match(instructions, /<proposed_plan>/);
+    NodeAssert.match(instructions, /<collaboration_mode>/);
   });
 });
 

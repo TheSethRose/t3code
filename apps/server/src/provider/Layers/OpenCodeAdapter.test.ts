@@ -24,6 +24,8 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
+import { EnvironmentId } from "@t3tools/contracts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import type { OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import {
@@ -38,6 +40,9 @@ import {
   makeOpenCodeAdapter,
   mergeOpenCodeAssistantText,
 } from "./OpenCodeAdapter.ts";
+import { buildT3Guidance } from "../T3Guidance.ts";
+
+const NO_PREVIEW_SYSTEM = buildT3Guidance({ hasPreviewTools: false });
 
 // Test-local service tag so the rest of the file can keep using `yield* OpenCodeAdapter`.
 class OpenCodeAdapter extends Context.Service<OpenCodeAdapter, OpenCodeAdapterShape>()(
@@ -74,6 +79,7 @@ const runtimeMock = {
     sessionDirectoryById: new Map<string, string>(),
     sessionUpdateCalls: [] as Array<{ sessionID: string; permission: unknown }>,
     forkCalls: [] as Array<{ sessionID: string; directory?: string }>,
+    mcpAddCalls: [] as Array<Record<string, unknown>>,
   },
   reset() {
     this.state.startCalls.length = 0;
@@ -94,6 +100,7 @@ const runtimeMock = {
     this.state.sessionDirectoryById.clear();
     this.state.sessionUpdateCalls.length = 0;
     this.state.forkCalls.length = 0;
+    this.state.mcpAddCalls.length = 0;
   },
 };
 
@@ -137,6 +144,12 @@ const OpenCodeRuntimeTestDouble: OpenCodeRuntimeShape = {
   runOpenCodeCommand: () => Effect.succeed({ stdout: "", stderr: "", code: 0 }),
   createOpenCodeSdkClient: ({ baseUrl, serverPassword }) =>
     ({
+      mcp: {
+        add: async (input: Record<string, unknown>) => {
+          runtimeMock.state.mcpAddCalls.push(input);
+          return { data: {} };
+        },
+      },
       session: {
         create: async (input: Record<string, unknown>) => {
           runtimeMock.state.sessionCreateUrls.push(baseUrl);
@@ -366,11 +379,18 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         ),
       });
 
-      // The prompt targets the resumed id, and the turn re-surfaces the cursor.
-      NodeAssert.deepEqual(
-        (runtimeMock.state.promptCalls[0] as { sessionID: string }).sessionID,
-        "ses_persisted",
-      );
+      // The resumed turn targets the persisted session while keeping guidance
+      // in the hidden system channel and user content in the original part.
+      const promptCall = runtimeMock.state.promptCalls[0] as {
+        sessionID: string;
+        system: string;
+        parts: Array<{ type: string; text: string }>;
+      };
+      NodeAssert.equal(promptCall.sessionID, "ses_persisted");
+      NodeAssert.equal(promptCall.system, NO_PREVIEW_SYSTEM);
+      NodeAssert.deepEqual(promptCall.parts, [
+        { type: "text", text: "continue where we left off" },
+      ]);
       NodeAssert.deepEqual(result.resumeCursor, {
         schemaVersion: 1,
         sessionId: "ses_persisted",
@@ -843,6 +863,7 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
         },
         agent: "github-copilot",
         variant: "high",
+        system: NO_PREVIEW_SYSTEM,
         parts: [{ type: "text", text: "Fix it" }],
       });
     }).pipe(Effect.provide(adapterLayer));
@@ -885,8 +906,61 @@ it.layer(OpenCodeAdapterTestLayer)("OpenCodeAdapterLive", (it) => {
           providerID: "anthropic",
           modelID: "claude-sonnet-4-5",
         },
+        system: NO_PREVIEW_SYSTEM,
         parts: [{ type: "text", text: "Fix it" }],
       });
+    }).pipe(Effect.provide(adapterLayer));
+  });
+
+  it.effect("sends preview guidance through system only when the t3-code MCP is attached", () => {
+    const instanceId = ProviderInstanceId.make("opencode_zen");
+    // No serverUrl: the runtime treats the spawned server as T3-owned, so the
+    // t3-code MCP is attached and preview guidance may be delivered.
+    const settings = Schema.decodeSync(OpenCodeSettings)({ binaryPath: "fake-opencode" });
+    const adapterLayer = Layer.effect(
+      OpenCodeAdapter,
+      makeOpenCodeAdapter(settings, { instanceId }),
+    ).pipe(
+      Layer.provideMerge(Layer.succeed(OpenCodeRuntime, OpenCodeRuntimeTestDouble)),
+      Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(ServerSettingsService.layerTest()),
+      Layer.provideMerge(providerSessionDirectoryTestLayer),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    return Effect.gen(function* () {
+      const threadId = asThreadId("thread-mcp-guidance");
+      McpProviderSession.setMcpProviderSession({
+        environmentId: EnvironmentId.make("env"),
+        threadId,
+        providerSessionId: "session",
+        providerInstanceId: instanceId,
+        endpoint: "http://127.0.0.1:9999/mcp",
+        authorizationHeader: "Bearer token",
+      });
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => McpProviderSession.clearMcpProviderSession(threadId)),
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      yield* adapter.startSession({
+        provider: ProviderDriverKind.make("opencode"),
+        threadId,
+        runtimeMode: "full-access",
+        modelSelection: createModelSelection(instanceId, "anthropic/claude-sonnet-4-5"),
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Fix it",
+      });
+
+      const call = runtimeMock.state.promptCalls.at(-1) as {
+        system: string;
+        parts: Array<{ type: string; text: string }>;
+      };
+      NodeAssert.match(call.system, /preview_status/);
+      NodeAssert.deepEqual(call.parts, [{ type: "text", text: "Fix it" }]);
     }).pipe(Effect.provide(adapterLayer));
   });
 

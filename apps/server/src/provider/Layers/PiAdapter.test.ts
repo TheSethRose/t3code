@@ -15,6 +15,7 @@ import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
 
 import { ServerConfig } from "../../config.ts";
+import { buildT3Guidance } from "../T3Guidance.ts";
 import { makePiAdapter } from "./PiAdapter.ts";
 
 const layer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-pi-adapter-test-" }).pipe(
@@ -32,6 +33,10 @@ it.layer(layer)("PiAdapter", (it) => {
         executable,
         `#!/usr/bin/env node
 import readline from "node:readline";
+import { writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+writeFileSync(join(dirname(fileURLToPath(import.meta.url)), "argv.json"), process.argv.slice(2).join("\u0000"));
 const lines = readline.createInterface({ input: process.stdin });
 for await (const line of lines) {
   const request = JSON.parse(line);
@@ -92,6 +97,16 @@ for await (const line of lines) {
         sessionId: "pi-session-1",
       });
 
+      const argv = (yield* fileSystem.readFileString(path.join(directory, "argv.json"))).split(
+        "\u0000",
+      );
+      const promptArgs = argv.filter((argument) => argument === "--append-system-prompt");
+      assert.deepEqual(promptArgs, ["--append-system-prompt"]);
+      assert.equal(
+        argv[argv.indexOf("--append-system-prompt") + 1],
+        buildT3Guidance({ hasPreviewTools: false }),
+      );
+
       yield* adapter.sendTurn({ threadId, input: "hello" });
       yield* Deferred.await(completed);
       yield* Fiber.interrupt(eventFiber);
@@ -106,6 +121,28 @@ for await (const line of lines) {
         "hello from Pi",
       );
       yield* adapter.stopSession(threadId);
+
+      const resumedThreadId = ThreadId.make("pi-resumed-thread");
+      yield* adapter.startSession({
+        threadId: resumedThreadId,
+        provider: ProviderDriverKind.make("pi"),
+        cwd: process.cwd(),
+        runtimeMode: "full-access",
+        resumeCursor: { schemaVersion: 1, sessionId: "pi-session-1" },
+      });
+      const resumedArgv = (yield* fileSystem.readFileString(
+        path.join(directory, "argv.json"),
+      )).split("\u0000");
+      assert.deepEqual(
+        resumedArgv.filter((argument) => argument === "--append-system-prompt"),
+        ["--append-system-prompt"],
+      );
+      assert.equal(
+        resumedArgv[resumedArgv.indexOf("--append-system-prompt") + 1],
+        buildT3Guidance({ hasPreviewTools: false }),
+      );
+      assert.equal(resumedArgv[resumedArgv.indexOf("--session-id") + 1], "pi-session-1");
+      yield* adapter.stopSession(resumedThreadId);
     }),
   );
 });
