@@ -157,66 +157,21 @@ deletions, and executable mirrored tests.
 
 ## Syncing Upstream
 
-Start from a clean downstream `main`:
+Invoke the repository skill:
 
-```bash
-git switch main
-vp node downstream/tools/downstream.ts roll
+```text
+$merge-t3code-downstream
 ```
 
-The command verifies clean state and required remotes, fetches `origin` and `upstream`, fast-forwards local `main` from `origin/main`, resolves the exact fetched `upstream/main` commit, and creates `sync/upstream-<sha>`. It exits without changing branches only when downstream `main` already contains that exact upstream commit. Published nightly tags remain available for build-version metadata but never cap integration.
+The skill owns the complete local pipeline: preserve unrelated work, fetch the exact
+`upstream/main` tip, create or resume `sync/upstream-<sha>`, reconcile every overlapping overlay,
+run all active-record and control-plane validation, build the DMG from the clean candidate, recheck
+that upstream has not advanced, fast-forward local `main`, and restore the starting worktree. It
+pushes or opens a pull request only when explicitly requested.
 
-The tool does not push, open a pull request, resolve conflicts, apply overlays, or merge the sync
-branch into downstream `main`. Those are review boundaries, not setup chores. After its upstream
-merge, use `$merge-t3code-downstream` to reconcile every overlapping full-file overlay before
-running init.
-
-## Resolving and Validating a Roll
-
-Use `$merge-t3code-downstream` after the upstream merge, including when Git reports no conflicts.
-The skill compares the previous accepted upstream commit, the new `upstream/main` commit, the Git-merged source,
-and each full-file overlay so a stale overlay cannot silently erase an upstream edit. Follow the
-[upstream compatibility check](docs/compatibility.md#upstream-compatibility-check), review every active
-file under `downstream/changes/`, remove deviations already supplied upstream, and run every command
-in each record's `Validation` section.
-
-When Git reports conflicts:
-
-```bash
-git status --short
-# use $merge-t3code-downstream to resolve conflicts and synchronize both copies
-vp node downstream/tools/downstream.ts init
-git status --short
-git add <all-resolved-and-applied-files>
-git commit
-```
-
-Use `git merge --abort` to abandon the roll and return to downstream `main`. Git keeps `main` on the
-last accepted baseline until the sync branch is explicitly integrated. The init command is
-idempotent: it installs `downstream/skills/` into `~/.agents/skills/`, applies the reviewed overlays,
-removes the obsolete embedded downstream block if present, preserves upstream's root instructions,
-and leaves exactly one downstream pointer as the final line.
-
-Verify the instruction invariant at any time:
-
-```bash
-vp node downstream/tools/downstream.ts verify
-```
-
-For a successful merge, run focused change validation first, then compile the integrated desktop/server/web pipeline:
-
-```bash
-vp run build:desktop
-```
-
-Push the sync branch and open a pull request into `main` when full CI proof is required:
-
-```bash
-git push -u origin "$(git branch --show-current)"
-gh pr create --base main --fill
-```
-
-Do not squash the upstream sync; the merge ancestry records the exact accepted upstream commit.
+`downstream.ts roll`, `init`, `verify`, and `build` remain the deterministic primitives used by the
+skill. Run them directly only when repairing or diagnosing a failed orchestration. Never use `init`
+to resolve a merge, and never squash the upstream merge ancestry.
 
 ## Building an Installable Artifact
 

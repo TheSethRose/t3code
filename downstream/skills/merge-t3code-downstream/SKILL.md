@@ -1,79 +1,153 @@
 ---
 name: merge-t3code-downstream
-description: Reconcile this maintained T3 Code fork with the current upstream main commit. Use after `downstream.ts roll`, to resolve upstream sync conflicts, or before applying `downstream/t3code/` overlays. Review overlays against upstream, sync both copies, and remove deviations upstream has absorbed.
+description: Orchestrate a complete T3 Code downstream update from the exact current upstream/main commit through overlay reconciliation, validation, local main integration, and a rebuilt DMG. Use when the user invokes $merge-t3code-downstream or asks to sync, merge, update, catch up, reapply downstream changes, or rebuild the downstream T3 Code artifact. Push only when explicitly requested.
 ---
 
 # Merge T3 Code Downstream
 
-Treat the Git-merged source file as the starting point and `downstream/t3code/` as a recovery copy,
-not a file to accept wholesale. Reconcile every upstream-owned file before running `downstream.ts
-init`, because init deliberately copies overlays over the working tree.
+Own the complete update. Do not stop after fetching, merging, listing conflicts, applying overlays, or
+printing commands the agent can run. Finish with a validated DMG on the latest fetched
+`upstream/main`, or report the exact blocking failure and preserved recovery state.
 
-## Preserve the Boundary
+## Invocation Authority
 
-- Read `AGENTS.md`, `downstream/t3code/AGENTS.md`, `downstream/README.md`, and the active records in
-  `downstream/changes/` before editing.
-- Keep upstream architecture and conventions unless an active downstream record still requires a
-  deviation.
-- Preserve unrelated work and do not stage, commit, push, or open a pull request unless requested.
-- Never use `downstream.ts init` to resolve a merge. Run it only after the working files and overlay
-  copies already represent the reviewed result.
+An explicit invocation authorizes the local operations required by this workflow: safety-stashing
+unrelated work, creating a sync branch, resolving files, committing the reviewed reconciliation,
+fast-forwarding local `main`, running validation, and building the artifact. It does not authorize a
+push, pull request, release, upload, or installer execution unless the user explicitly asks for it.
 
-## Reconcile Upstream
+Read `AGENTS.md`, `downstream/t3code/AGENTS.md`, `downstream/README.md`, and every active record
+under `downstream/changes/` before changing state.
 
-1. **Establish the two baselines.** Inspect `git status --short`, the current branch, and the merge
-   parents. During a conflicted merge, the prior downstream state is `HEAD` and the new upstream
-   state is `MERGE_HEAD`. After a clean merge commit, they are `HEAD^1` and `HEAD^2`. Identify the
-   previous accepted upstream commit reachable from the prior downstream state, and confirm the
-   target ref is the exact fetched `upstream/main` commit:
+## 1. Preserve the Starting State
 
-   ```bash
-   git merge-base <prior-ref> upstream/main
-   test "$(git rev-parse <target-ref>)" = "$(git rev-parse upstream/main)"
-   git merge-base --is-ancestor <previous-upstream> <target-ref>
-   ```
+Inspect `git status --short`, the current branch, remotes, existing merge state, and safety stashes.
 
-2. **Inventory every overlap.** List files below `downstream/t3code/`, map them to their normal
-   repository paths, and compare that set with `git diff --name-only <previous-upstream>..<target-ref>`.
-   Review every intersection even when Git reported no conflict; a full-file overlay can erase a
-   clean upstream edit. Link each retained deviation to an active `downstream/changes/*.md` record.
-   Treat `downstream/t3code/AGENTS.md` as the documented exception: review its downstream
-   instructions directly, while init preserves the upstream root `AGENTS.md` and appends only the
-   downstream pointer.
+- If unrelated work is cleanly separable, stash it with untracked files under a unique
+  `safety: downstream sync ...` message and record the exact stash ref for restoration.
+- If unrelated work overlaps an upstream-changed path, an overlay, or a change record, stop before
+  editing and ask for direction.
+- Never drop an existing stash, rewrite published `main`, force-push, or use a broad destructive
+  command.
+- Resume an existing `sync/upstream-<sha>` merge when its target and prior baseline can be proven;
+  otherwise start from clean `main`.
 
-3. **Resolve from intent.** For each overlapping path, inspect the upstream change, the prior
-   downstream delta, the current Git-merged file, the overlay copy, and every caller affected by the
-   behavior. Adapt the smallest still-required downstream change to the current upstream extension
-   point. Do not choose an entire side. If upstream now supplies equivalent behavior, remove the
-   downstream implementation, its overlay, and its change record together.
+## 2. Fetch and Merge the Exact Upstream Tip
 
-4. **Synchronize both copies.** Once the normal source path is correct, make its
-   `downstream/t3code/<path>` counterpart byte-identical. Retain downstream-only files only while an
-   active record requires them. Update a record when its affected surfaces, validation, or removal
-   condition changed.
+From clean `main`, run:
 
-5. **Prove the result.** Run init only after every working file and overlay contain the reviewed
-   result:
+```bash
+vp node downstream/tools/downstream.ts roll
+```
 
-   ```bash
-   vp node downstream/tools/downstream.ts init
-   ```
+This fetches both remotes, fast-forwards from `origin/main`, records the exact fetched
+`upstream/main` SHA, and merges it on `sync/upstream-<sha>`. During a conflicted merge,
+`HEAD` is the prior downstream state and `MERGE_HEAD` is the target. After a clean merge commit,
+`HEAD^1` is the prior state and `HEAD^2` is the target.
 
-   Then run every affected record's focused validation followed by:
+Prove the range before reconciliation:
 
-   ```bash
-   vp node --test downstream/tools/downstream.test.ts
-   vp exec tsgo -p downstream/tools/tsconfig.json --noEmit
-   vp node downstream/tools/downstream.ts verify
-   git diff --check
-   ```
+```bash
+git merge-base <prior-ref> upstream/main
+test "$(git rev-parse <target-ref>)" = "$(git rev-parse upstream/main)"
+git merge-base --is-ancestor <previous-upstream> <target-ref>
+```
 
-   Inspect `git status --short` and the final diff. Report which upstream-overlap files were reviewed,
-   which downstream behaviors were retained, adapted, or removed, and which checks passed.
+If `roll` reports that `main` is current, continue through validation and the DMG build; current
+source is not proof that the downstream artifact is current.
+
+## 3. Reconcile Every Downstream Deviation
+
+Treat the Git-merged normal source as the starting point and `downstream/t3code/` as a recovery
+copy, never as a side to accept wholesale.
+
+1. Map every overlay to its normal path and intersect that set with
+   `git diff --name-only <previous-upstream>..<target-ref>`.
+2. Review every intersection even when Git merged cleanly. Inspect the upstream change, prior
+   downstream delta, merged file, overlay, active record, and affected callers.
+3. Preserve upstream architecture. Adapt only the smallest downstream behavior still required by an
+   active record.
+4. When upstream supplies equivalent behavior, remove the downstream implementation, overlay, and
+   active record together. Do not infer equivalence without evidence.
+5. Make every retained normal/overlay pair byte-identical and update its record when affected
+   surfaces, validation, or removal conditions changed.
+6. Review `downstream/t3code/AGENTS.md` directly; `init` appends its pointer without replacing
+   upstream root instructions.
+
+Never run `init` as a conflict resolver.
+
+## 4. Apply and Prove the Integrated Tree
+
+After both copies already contain the reviewed result, run:
+
+```bash
+vp node downstream/tools/downstream.ts init
+```
+
+Run every active change record's exact validation commands, then:
+
+```bash
+vp node --test downstream/tools/downstream.test.ts
+vp exec tsgo -p downstream/tools/tsconfig.json --noEmit
+vp node downstream/tools/downstream.ts verify
+git diff --check
+vp run build:desktop
+```
+
+Do not replace focused checks with repo-wide checks. Fix real failures at their root and rerun the
+failed check plus any dependent checks. Inspect the final diff and status. Commit only the reviewed
+sync and reconciliation files with conventional commit messages; preserve merge ancestry and never
+squash the upstream merge.
+
+## 5. Build the DMG Before Integrating Main
+
+The candidate must be clean and `downstream.ts verify` must pass. Use the reconciled sync commit, or
+clean `main` when `roll` reported it current. Build the installable artifact from that exact commit:
+
+```bash
+vp node downstream/tools/downstream.ts build
+```
+
+Record the downstream version and the files created or updated under `release/downstream/`. A
+failed build blocks local `main` integration and any requested push.
+
+## 6. Recheck Latest and Integrate
+
+Fetch upstream again after the build. If `upstream/main` moved beyond the candidate, repeat the
+merge, reconciliation, validation, and build on the new exact SHA. Do not publish a candidate that
+is already behind at this gate.
+
+When the candidate still contains the fetched tip, fast-forward `main` from the sync branch. If
+`roll` reported current and the candidate is already `main`, skip only the switch and merge:
+
+```bash
+git switch main
+git merge --ff-only sync/upstream-<sha>
+vp node downstream/tools/downstream.ts verify
+git merge-base --is-ancestor upstream/main main
+```
+
+Push `main` only when the user explicitly requested it, and verify the remote SHA afterward. Do not
+open a pull request unless explicitly requested.
+
+## 7. Restore and Report
+
+Restore the exact safety stash created in step 1. Apply it first, verify the original paths and
+contents returned, then drop only that stash. If restoration conflicts, keep the stash and report the
+conflict instead of guessing.
+
+Report:
+
+- accepted upstream SHA and downstream `main` SHA;
+- proof that upstream has zero commits missing at the final fetch;
+- overlaps reviewed and downstream behaviors retained, adapted, or removed;
+- validation and build results;
+- exact DMG path;
+- push status;
+- unrelated work restoration status.
 
 ## Stop Conditions
 
-- Stop before editing when the target upstream commit or previous accepted baseline cannot be established.
-- Stop before deleting a deviation when no active record proves that upstream behavior is equivalent.
-- If the working tree contains unrelated edits that overlap the roll, preserve them and ask for
-  direction rather than folding them into the upstream merge.
+Stop without deleting recovery state when the target or previous baseline cannot be proven, unrelated
+work overlaps the sync, a deviation might be upstream-equivalent but evidence is insufficient, a
+validation/build fails after root-cause attempts, or safety-stash restoration conflicts.

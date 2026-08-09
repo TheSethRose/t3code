@@ -101,8 +101,8 @@ For each sync:
 2. Review upstream changes overlapping every active change record and overlay-owned file.
 3. Reconcile contracts, migrations, provider APIs, settings, and client capability checks before
    resolving presentation conflicts.
-4. Use `$merge-t3code-downstream` to review every overlapping full-file overlay and update both
-   copies, then run `downstream.ts init` before staging.
+4. Use `$merge-t3code-downstream` to orchestrate the complete update and review every overlapping
+   full-file overlay before the skill applies `downstream.ts init`.
 5. Run each change record's exact validation, then the downstream control-plane checks.
 6. Start the integrated build against copied real state when stored data or migrations changed.
 7. Verify one matching client/server path for every supported connection mode affected by the roll.

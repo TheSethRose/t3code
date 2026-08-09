@@ -41,9 +41,9 @@ Update a record when its behavior or validation changes. Delete it with the redu
 
 - `origin/main` is the tested downstream product branch.
 - The fetched `upstream/main` commit is the integration input; published nightly tags remain immutable build-version metadata.
-- Run `vp node downstream/tools/downstream.ts roll` from a clean `main`; do not reproduce its fetch, target-selection, or branch setup by hand unless repairing the tool.
-- After the upstream merge, use `$merge-t3code-downstream` before `downstream.ts init` to review every
-  upstream change that overlaps a full-file overlay and synchronize the normal path with its overlay.
+- Invoke `$merge-t3code-downstream` for the complete local sync, reconciliation, validation, `main`
+  integration, and DMG build. Use `downstream.ts` subcommands directly only to repair or diagnose the
+  orchestrated workflow.
 - Upstream syncs happen on temporary `sync/upstream-<sha>` branches and merge into `main` only after validation.
 - Fork-only features and fixes use short-lived topic branches and remain independently removable.
 - Each fork-only feature follows `docs/feature-lifecycle.md` and records every applicable client,

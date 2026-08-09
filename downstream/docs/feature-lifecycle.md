@@ -98,11 +98,10 @@ not replace focused validation with repo-wide checks outside CI.
 
 ## 5. Roll Forward
 
-During each upstream sync, use `$merge-t3code-downstream` after the upstream merge and before
-`downstream.ts init`. Compare upstream changes with every active record's files and affected
-surfaces, resolve against current upstream architecture, and update the normal file, overlay
-counterpart, and record together. Run init only after both copies contain the reviewed result, then
-rerun the exact validation. Follow
+During each upstream sync, invoke `$merge-t3code-downstream` to orchestrate the fetch, merge,
+reconciliation, validation, local `main` integration, and DMG build. The skill compares upstream
+changes with every active record's files and affected surfaces, resolves against current upstream
+architecture, and updates the normal file, overlay counterpart, and record together. Follow
 [Compatibility](compatibility.md) for contracts, stored data, and mixed versions.
 
 If upstream changes the extension point, adapt the downstream change to it. Do not add a permanent
