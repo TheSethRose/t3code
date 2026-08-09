@@ -1,4 +1,4 @@
 interface:
   display_name: "T3 Plan"
-  short_description: "Turn an idea into a scoped GitHub issue"
-  default_prompt: "Use $t3-plan to investigate an idea and create one scoped downstream GitHub issue."
+  short_description: "Turn ideas or legacy plans into scoped GitHub issues"
+  default_prompt: "Use $t3-plan to investigate this request and create or update the smallest grounded GitHub issue set."
