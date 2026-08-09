@@ -45,6 +45,7 @@ Update a record when its behavior or validation changes. Delete it with the redu
 - Invoke `$t3-sync` for the complete local source sync, reconciliation, validation, and `main`
   integration. It does not build a DMG. Use `downstream.ts` subcommands directly only to repair or
   diagnose the workflow.
+- Invoke `$t3-build` separately when an exact-commit DMG is requested.
 - Upstream syncs happen on temporary `sync/upstream-<sha>` branches and merge into `main` only after validation.
 - Fork-only features and fixes use short-lived topic branches and remain independently removable.
 - Each fork-only feature follows `docs/feature-lifecycle.md` and records every applicable client,
@@ -60,8 +61,8 @@ Update a record when its behavior or validation changes. Delete it with the redu
 - Keep `downstream/t3code/AGENTS.md` authoritative; init installs `downstream/skills/` into
   `~/.agents/skills/`, applies reviewed overlays, and leaves root `AGENTS.md` ending with its single
   downstream pointer.
-- Use `vp node downstream/tools/downstream.ts build` only when an installable artifact is explicitly
-  requested; do not persist release-version edits in the working branch.
+- Let `$t3-build` own installable artifacts; do not persist release-version edits in the working
+  branch.
 - Keep `downstream/t3code/` limited to downstream-owned files; do not copy the whole upstream tree or add a patch engine, permanent mirror branch, or automatic merge workflow unless the current tooling has demonstrably stopped scaling.
 
 ## Completion Gate

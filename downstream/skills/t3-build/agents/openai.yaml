@@ -1,0 +1,4 @@
+interface:
+  display_name: "T3 Build"
+  short_description: "Build and verify a downstream DMG"
+  default_prompt: "Use $t3-build to build or reuse and fully verify a downstream T3 Code DMG."

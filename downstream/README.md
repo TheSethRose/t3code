@@ -194,8 +194,13 @@ Read [Release and Distribution](docs/release-and-distribution.md) before distrib
 the current command builds a local host-platform artifact but does not establish independent product
 identity, remote server distribution, signing, or an update channel.
 
-When a build is explicitly required, run the existing exact-commit primitive from a clean accepted
-commit:
+When a build is explicitly required, invoke the separate exact-commit skill:
+
+```text
+$t3-build
+```
+
+It validates an existing matching DMG before rebuilding through the existing primitive:
 
 ```bash
 vp node downstream/tools/downstream.ts build

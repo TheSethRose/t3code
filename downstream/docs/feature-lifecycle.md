@@ -94,8 +94,8 @@ the actual provider runtime for installation, authentication, one completed turn
 interruption, continuation, and shutdown. A compile or mocked adapter test does not prove those
 installed states.
 
-Do not replace focused validation with repo-wide checks outside CI. Build an installable DMG only
-when the issue explicitly requires one.
+Do not replace focused validation with repo-wide checks outside CI. Invoke `$t3-build` only when the
+issue explicitly requires an installable DMG.
 
 ## 5. Roll Forward
 

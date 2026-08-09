@@ -7,13 +7,14 @@ local artifact workflow and must not inherit upstream publication destinations b
 
 ## Current Build Path
 
-From a clean accepted commit, run:
+From a clean accepted commit, invoke:
 
-```bash
-vp node downstream/tools/downstream.ts build
+```text
+$t3-build
 ```
 
-The command creates a detached
+The skill reuses a valid exact-commit artifact when possible; otherwise it runs
+`vp node downstream/tools/downstream.ts build`. The command creates a detached
 temporary worktree, aligns release package versions to a unique downstream version, installs pinned
 dependencies, invokes the existing host artifact builder once, and copies output to
 `release/downstream/`. It removes `T3CODE_DESKTOP_UPDATE_REPOSITORY` and
