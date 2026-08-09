@@ -16,6 +16,8 @@ Add a provider-neutral ACP (Agent Client Protocol) driver so any ACP-compatible 
 - `apps/server/src/provider/Drivers/AcpDriver.ts` — `ProviderDriver` factory, wires snapshot/adapter/textGen in scoped instance
 - `apps/server/src/provider/builtInDrivers.ts` — registers `AcpDriver` in `BUILT_IN_DRIVERS`
 - `apps/web/src/components/Icons.tsx` — `AcpAgentIcon`
+- `apps/web/src/components/settings/ProviderModelsSection.tsx` — filters large ACP model inventories while preserving the same input for custom model entry
+- `apps/web/src/components/settings/ProviderModelsSection.test.ts` — focused ACP model-filter regression
 - `apps/web/src/components/settings/providerDriverMeta.ts` — acp entry with label, icon, badge, schema
 - `apps/web/src/components/chat/providerIconUtils.ts` — acp icon mapping
 - `apps/web/src/session-logic.ts` — acp in provider picker
@@ -35,6 +37,8 @@ Shared provider registration and picker files are owned by `provider-registry.md
 - `apps/server/src/provider/acp/AcpSessionRuntime.ts`
 - `apps/server/src/textGeneration/AcpTextGeneration.ts`
 - `apps/web/src/components/Icons.tsx`
+- `apps/web/src/components/settings/ProviderModelsSection.test.ts`
+- `apps/web/src/components/settings/ProviderModelsSection.tsx`
 
 ## Validation
 
@@ -42,6 +46,7 @@ Shared provider registration and picker files are owned by `provider-registry.md
 (cd apps/server && vp test run src/provider/Layers/AcpAdapter.test.ts)
 (cd packages/contracts && vp run typecheck)
 (cd apps/server && vp run typecheck)
+(cd apps/web && vp test run --passWithNoTests --project unit src/components/settings/ProviderModelsSection.test.ts)
 (cd apps/web && vp run typecheck)
 (cd apps/mobile && vp run typecheck)
 vp node downstream/tools/downstream.test.ts
